@@ -1,0 +1,307 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Why LSP?</title>
+  <meta name="description" content="LSP (language server protocol) is fairly popular today.
+There's a standard explanation of why that is the case.
+You probably have seen this picture before:">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2022/04/25/why-lsp.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Why-LSP">Why LSP? <time datetime="2022-04-25">Apr 25, 2022</time></a>
+    </h1>
+<p>LSP (<a href="https://microsoft.github.io/language-server-protocol/">language server protocol</a>) is fairly popular today.
+There&rsquo;s a standard explanation of why that is the case.
+You probably have seen this picture before:</p>
+
+<figure>
+
+<img alt="" src="/assets/LSP-MxN.png">
+</figure>
+<p>I believe that this standard explanation of LSP popularity is wrong.
+In this post, I suggest an alternative picture.</p>
+<section id="Standard-Explanation">
+
+    <h2>
+    <a href="#Standard-Explanation">Standard Explanation </a>
+    </h2>
+<p>The explanation goes like this:</p>
+<p>There are <code>M</code> editors and <code>N</code> languages.
+If you want to support a particular language in a particular editor, you need to write a dedicated plugin for that.
+That means <code>M * N</code> work, as the picture on the left vividly demonstrates.
+What LSP does is cutting that to <code>M + N</code>, by providing a common thin waist, as show on the right picture.</p>
+</section>
+<section id="Why-is-the-explanation-wrong">
+
+    <h2>
+    <a href="#Why-is-the-explanation-wrong">Why is the explanation wrong? </a>
+    </h2>
+<p>The problem with the explanation is that also best to illustrate pictorially.
+In short, the picture above is not drawn to scale.
+Here&rsquo;s a better illustration of how, for example, rust-analyzer + VS Code combo works together:</p>
+
+<figure>
+
+<img alt="" src="/assets/ra-code.png">
+</figure>
+<p>The (big) ball on the left is rust-analyzer &mdash; a language server.
+The similarly sized ball on the right is VS Code &mdash; an editor.
+And the small ball in the center is the code to glue them together, <em>including</em> LSP implementations.</p>
+<p>That code is relatively and absolutely tiny.
+The codebases behind either the language server or the editor are enormous.</p>
+<p>If the standard theory were correct, then, before LSP, we would have lived in a world where some languages has superb IDE support in some editors.
+For example, IntelliJ would have been great at Java, Emacs at C++, Vim at C#, etc.
+My recollection of that time is quite different.
+To get a decent IDE support, you either used a language supported by JetBrains (IntelliJ or ReSharper) or.</p>
+<p>There was just a single editor providing meaningful semantic IDE support.</p>
+</section>
+<section id="Alternative-Theory">
+
+    <h2>
+    <a href="#Alternative-Theory">Alternative Theory </a>
+    </h2>
+<p>I would say that the reason for such poor IDE support in the days of yore is different.
+Rather than <code>M * N</code> being too big, it was too small, because <code>N</code> was zero and <code>M</code> just slightly more than that.</p>
+<p>I&rsquo;d start with <code>N</code> &ndash; the number of language servers, this is the side I am relatively familiar with.
+Before LSP, there simply weren&rsquo;t a lot of working language-server shaped things.
+The main reason for that is that building a language server is hard.</p>
+<p>The essential complexity for a server is pretty high.
+It is known that compilers are complicated, and a language server is a compiler <em><em>and then some</em></em>.</p>
+<p><em>First</em>, like a compiler, a language server needs to fully understand the language, it needs to be able to distinguish between valid and invalid programs.
+However, while for invalid programs a batch compiler is allowed to emit an error message and exit promptly, a language server must analyze <em>any</em> invalid program as best as it can.
+Working with incomplete and invalid programs is the first complication of a language server in comparison to a compiler.</p>
+<p><em>Second</em>, while a batch compiler is a pure function which transforms source text into machine code, a language server has to work with a code base which is constantly being modified by the user.
+It is a compiler with a time dimension, and evolution of state over time is one of the hardest problems in programming.</p>
+<p><em>Third</em>, a batch compiler is optimized for maximum throughput, while a language server aims to minimize latency (while not completely forgoing throughput).
+Adding a latency requirement doesn&rsquo;t mean that you need to optimize harder.
+Rather, it means that you generally need to turn the architecture on its head to have an acceptable latency at all.</p>
+<p>And this brings us to a related cluster of accidental complexity surrounding language servers.
+It is well understood how to write a batch compiler.
+It&rsquo;s common knowledge.
+While not everyone have read the dragon book (I didn&rsquo;t meaningfully get past the parsing chapters), everyone knows that that book contains all the answers.
+So most existing compilers end up looking like a typical compiler.
+And, when compiler authors start thinking about IDE support, the first thought is &ldquo;well, IDE is kinda a compiler, and we have a compiler, so problem solved, right?&rdquo;.
+This is quite wrong &mdash; internally an IDE is very different from a compiler but, until very recently, this wasn&rsquo;t common knowledge.</p>
+<p>Language servers are a counter example to the <a href="https://www.joelonsoftware.com/2000/04/06/things-you-should-never-do-part-i/">&ldquo;never rewrite&rdquo;</a> rule.
+Majority of well regarded language servers are rewrites or alternative implementations of batch compilers.</p>
+<p>Both IntelliJ and Eclipse wrote their own compilers rather than re-using javac inside an IDE.
+To provide an adequate IDE support for C#, Microsoft rewrote their C++ batch compiler into an interactive self-hosted one (project Roslyn).
+Dart, despite being a from-scratch, relatively modern language, ended up with <em>three</em> implementations (host AOT compiler, host IDE compiler (dart-analyzer), on-device JIT compiler).
+Rust tried both &mdash; incremental evolution of rustc (RLS) and from-scratch implementation (rust-analyzer), and rust-analyzer decisively won.</p>
+<p>The two exceptions I know are C++ and OCaml.
+Curiously, both require forward declarations and header files, and I don&rsquo;t think this is a coincidence.
+See the <a href="https://rust-analyzer.github.io/blog/2020/07/20/three-architectures-for-responsive-ide.html">Three Architectures for a Responsive IDE</a> post for details.</p>
+<p>To sum up, on the language server&rsquo;s side things were in a bad equilibrium.
+It was totally possible to implement language servers, but that required a bit of an iconoclastic approach, and it&rsquo;s hard to be a pioneering iconoclast.</p>
+<p>I am less certain what was happening on the editor&rsquo;s side.
+Still, I do want to claim that we had no editors capable of being an IDE.</p>
+<p>IDE experience consists of a host of semantic features.
+The most notable example is, of course completion.
+If one wants to implement custom completion for VS Code, one needs to implement
+<a href="https://code.visualstudio.com/api/references/vscode-api#CompletionItemProvider">CompletionItemProvider</a> interface:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">interface</span> <span class="hl-title class_">CompletionItemProvider</span> {</code>
+<code>    <span class="hl-title function_">provideCompletionItems</span>(</code>
+<code>        <span class="hl-attr">document</span>: <span class="hl-title class_">TextDocument</span>,</code>
+<code>        <span class="hl-attr">position</span>: <span class="hl-title class_">Position</span>,</code>
+<code>    ): <span class="hl-title class_">CompletionItem</span>[]</code>
+<code>}</code></pre>
+
+</figure>
+<p>This means that, in VS Code, code completion (as well as dozens of other IDE related features) is an editor&rsquo;s first-class concept, with uniform user UI and developer API.</p>
+<p>Contrast this with Emacs and Vim.
+They just don&rsquo;t have proper completion as an editor&rsquo;s extension point.
+Rather, they expose low-level cursor and screen manipulation API, and then people implement competing completion frameworks on top of that!</p>
+<p>And that&rsquo;s just code completion!
+What about parameter info, inlay hints, breadcrumbs, extend selection, assists, symbol search, find usages (I&rsquo;ll stop here :) )?</p>
+<p>To sum the above succinctly, the problem with decent IDE support was not of <code>N * M</code>, but rather of an inadequate equilibrium of a two-sided market.</p>
+<p>Language vendors were reluctant to create language servers, because it was hard, the demand was low (= no competition from other languages), and, even if one creates a language server, one would find a dozen editors absolutely unprepared to serve as a host for a smart server.</p>
+<p>On the editor&rsquo;s side, there was little incentive for adding high-level APIs needed for IDEs, because there were no potential providers for those APIs.</p>
+</section>
+<section id="Why-LSP-is-great">
+
+    <h2>
+    <a href="#Why-LSP-is-great">Why LSP is great </a>
+    </h2>
+<p>And that&rsquo;s why I think LSP is great!</p>
+<p>I don&rsquo;t think it was a big technical innovation (it&rsquo;s obvious that you want to separate a language-agnostic editor and a language-specific server).
+I think it&rsquo;s a rather bad (aka, &ldquo;good enough&rdquo;) technical implementation (stay tuned for &ldquo;Why LSP sucks?&rdquo; post I guess?).
+<em>But</em> it moved us from a world where not having a language IDE was normal and no one was even thinking about language servers, to a world where a language without working completion and goto definition looks unprofessional.</p>
+<p>Notably, the two-sided market problem was solved by Microsoft, who were a vendor of both languages (C# and TypeScript) and editors (VS Code and Visual Studio), and who were generally losing in the IDE space to a competitor (JetBrains).
+While I may rant about particular technical details of LSP, I absolutely admire their strategic vision in this particular area.
+They:</p>
+<ul>
+<li>
+built an editor on web technologies.
+</li>
+<li>
+identified webdev as a big niche where JetBrains struggles (supporting JS in an IDE is next to impossible).
+</li>
+<li>
+built a language (!!!!) to make it feasible to provide IDE support for webdev.
+</li>
+<li>
+built an IDE platform with a very forward-looking architecture (stay tuned for a post where I explain why <code>vscode.d.ts</code> is a marvel of technical excellence).
+</li>
+<li>
+launched LSP to increase the value of their platform in other domains for free (moving the whole world to a significantly better IDE equilibrium as a collateral benefit).
+</li>
+<li>
+and now, with code spaces, are posed to become the dominant player in the &ldquo;remote first development&rdquo;, should we indeed stop editing, building, and running code on our local machines.
+</li>
+</ul>
+<p>Though, to be fair, I still hope that, in the end, the winner would be JetBrains with their idea of Kotlin as a universal language for any platform :-)
+While Microsoft takes full advantage of worse-is-better technologies which are dominant today (TypeScript and Electron), JetBrains tries to fix things from the bottom up (Kotlin and Compose).</p>
+</section>
+<section id="More-on-M-N">
+
+    <h2>
+    <a href="#More-on-M-N">More on M * N </a>
+    </h2>
+<p>Now I am just going to hammer it in that it&rsquo;s <em>really</em> not <code>M * N</code> :)</p>
+<p><em>First</em>, <code>M * N</code> argument ignores the fact that this is an embarrassingly parallel problem.
+Neither language designers need to write plugins for all editors, nor editors need to add special support for all languages.
+Rather, a language should implement a server which speaks some protocol, an editor needs to implement language agnostic APIs for providing completions and such, and, if both the language and the editor are not esoteric, someone who is interested in both would just write a bit of glue code to bind the two together!
+rust-analyzer&rsquo;s VS Code plugin is 3.2k lines of code, neovim plugin is 2.3k and Emacs plugin is 1.2k.
+All three are developed independently by different people.
+That&rsquo;s the magic of decentralized open source development at its finest!
+If the plugins were to support custom protocol instead of LSP (provided that the editor supports high-level IDE API inside), I&rsquo;d expect to add maybe 2k lines for that, which is still well within hobbyist working part-time budget.</p>
+<p><em>Second</em>, for <code>M * N</code> optimization you&rsquo;d expect the protocol implementation to be generated from some machine readable implementation.
+But until the latest release, the source of truth for LSP spec was an informal markdown document.
+Every language and client was coming up with their own way to extract protocol out of it, many (including rust-analyzer) were just syncing the changes manually, with quite a bit of dupliction.</p>
+<p><em>Third</em>, if <code>M * N</code> is a problem, you&rsquo;d expect to see only one LSP implementation for each editor.
+In reality, there are two competing Emacs implementations (lsp-mode and eglot) and, I kid you not, at the time of writing rust-analyzer&rsquo;s manual contains instruction for integration with 6 (six) different LSP clients for vim.
+To echo the first point, this is open source!
+The <em>total</em> amount of work is almost irrelevant, the thing that matters is the amount of coordination to get things done.</p>
+<p><em>Fourth</em>, Microsoft itself doesn&rsquo;t try to take advantage of <code>M + N</code>.
+There&rsquo;s <em>no</em> universal LSP implementation in VS Code.
+Instead, each language is required to have a dedicated plugin with physically independent implementations of LSP.</p>
+</section>
+<section id="Action-Items">
+
+    <h2>
+    <a href="#Action-Items">Action Items </a>
+    </h2>
+<dl>
+<dt>Everyone</dt>
+<dd>
+<p>Please demand better IDE support!
+I think today we crossed the threshold of general availability of baseline IDE support, but there&rsquo;s so much we can do beyond the basics.
+In the ideal world, it should be possible to inspect every little semantic details about expression at the cursor, using the same simple API one can use today to inspect contents of editor&rsquo;s buffer.</p>
+</dd>
+<dt>Text Editor Authors</dt>
+<dd>
+<p>Pay attention to the architecture of VS Code.
+While electron delivers questionable user experience, the internal architecture has a lot of wisdom in it.
+Do orient editor&rsquo;s API around presentation-agnostic high-level features.
+Basic IDE functionality should be a first-class extension point, it shouldn&rsquo;t be re-invented by every plugin&rsquo;s author.
+In particular, add <a href="https://rust-analyzer.github.io/blog/2020/09/28/how-to-make-a-light-bulb.html">assist/code action/💡</a> as a first-class UX concept already.
+It&rsquo;s the single most important UX innovation of IDEs, which is very old at this point.
+Its outright ridiculous that this isn&rsquo;t a standard interface across all editors.</p>
+<p>But don&rsquo;t make LSP <em>itself</em> a first class concept.
+Surprising as it might seem, VS Code knows <em>nothing</em> about LSP.
+It just provides a bunch of extension points without caring the least how they are implemented.
+LSP implementation then is just a library, which is used by language-specific plugins.
+E.g., Rust and C++ extensions for VS Code do not share the same LSP implementation at runtime, there are two copies of LSP library in memory!</p>
+<p>Also, try to harness the power of open-source.
+Don&rsquo;t enforce centralization of all LSP implementations!
+Make it possible for separate groups of people to independenty work on perfect Go support and perfect Rust support for your editor.
+VS Code is one possible model, with a marketplace and distributed, independent plugins.
+But it probably should be possible to organize the work as a single shared repo/source tree, as long as languages can have independent maintainers sets</p>
+</dd>
+<dt>Language Server Authors</dt>
+<dd>
+<p>You are doing a great job!
+The quality of IDE support is improving rapidly for all the languages, though I feel this is only a beginning of a long road.
+One thing to keep in mind is that LSP is <em>an</em> interface to a semantic info about the language, but it isn&rsquo;t <em>the</em> interface.
+A better thing might come along.
+Even today, limitations of LSP prevent from shipping useful features.
+So, try to treat LSP as a serialization format, not as an internal data model.
+And try to write more about how to implement language servers &mdash; I feel like there&rsquo;s still not enough knowledge about this out there.</p>
+</dd>
+</dl>
+<p>That&rsquo;s it!</p>
+<hr>
+<p>P.S. If by any chance you are benefiting from using rust-analyzer, consider sponsoring <a href="https://opencollective.com/rust-analyzer">Ferrous Systems Open Source Collective for rust-analyzer</a> to support its development!</p>
+</section>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2022-04-25-why-lsp.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

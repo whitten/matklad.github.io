@@ -1,0 +1,233 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>On Random Numbers</title>
+  <meta name="description" content="This is a short post which decomposes random numbers topic into principal components and maps them to Rust ecosystem.">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2023/01/04/on-random-numbers.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#On-Random-Numbers">On Random Numbers <time datetime="2023-01-04">Jan 4, 2023</time></a>
+    </h1>
+<p>This is a short post which decomposes &ldquo;random numbers&rdquo; topic into principal components and maps them to Rust ecosystem.</p>
+<section id="True-Randomness">
+
+    <h2>
+    <a href="#True-Randomness">True Randomness </a>
+    </h2>
+<p>For cryptographic purposes (eg, generating a key pair for public key cryptography), you want to use real random numbers, derived from genuinely stochastic physical signals
+(hardware random number generator, keyboard input, etc).
+The shape of the API here is:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">fill_buffer_with_random_data</span>(buf: &amp;<span class="hl-keyword">mut</span> [<span class="hl-type">u8</span>])</code></pre>
+
+</figure>
+<p>As this fundamentally requires talking to some physical devices, this task is handled by the operating system.
+Different operating systems provide different APIs, covering which is beyond the scope of this article (and my own knowledge).</p>
+<p>In Rust, <a href="https://lib.rs/getrandom"><code>getrandom</code></a> crate provides a cross-platform wrapper for this functionality.</p>
+<p>It is a major deficiency of Rust standard library that this functionality is not exposed there.
+Getting cryptographically secure random data is in the same class of OS services as getting the current time or reading standard input.
+Arguably, it&rsquo;s even more important, as most applications for this functionality are security-critical.</p>
+</section>
+<section id="Pseudorandom-Number-Generator">
+
+    <h2>
+    <a href="#Pseudorandom-Number-Generator">Pseudorandom Number Generator </a>
+    </h2>
+<p>For various non-cryptographic randomized algorithms, you want to start with a fixed, deterministic <code>seed</code>, and generate a stream of numbers, statistically indistinguishable from random.
+The shape of the API here is:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">random_u32</span>(state: &amp;<span class="hl-keyword">mut</span> <span class="hl-type">f64</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">u32</span></code></pre>
+
+</figure>
+<p>There are many different algorithms to do that.
+<a href="https://lib.rs/fastrand"><code>fastrand</code></a> crate implements something sufficiently close to the state of the art.</p>
+<p>Alternatively, a good-enough PRNG can be implemented in 9 lines of code:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">random_numbers</span>(seed: <span class="hl-type">u32</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-keyword">impl</span> <span class="hl-title class_">Iterator</span>&lt;Item = <span class="hl-type">u32</span>&gt; {</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">random</span> = seed;</code>
+<code>  std::iter::<span class="hl-title function_ invoke__">repeat_with</span>(<span class="hl-keyword">move</span> || {</code>
+<code>    random ^= random &lt;&lt; <span class="hl-number">13</span>;</code>
+<code>    random ^= random &gt;&gt; <span class="hl-number">17</span>;</code>
+<code>    random ^= random &lt;&lt; <span class="hl-number">5</span>;</code>
+<code>    random</code>
+<code>  })</code>
+<code>}</code></pre>
+
+</figure>
+<p>This code was lifted from Rust&rsquo;s standard library (<a href="https://github.com/rust-lang/rust/blob/1.55.0/library/core/src/slice/sort.rs#L559-L573">source</a>).</p>
+<p>The best way to seed a PRNG is usually by using a fixed constant.
+If you absolutely need <em>some</em> amount of randomness in the seed, you can use the following hack:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">random_seed</span>() <span class="hl-punctuation">-&gt;</span> <span class="hl-type">u64</span> {</code>
+<code>  std::hash::Hasher::<span class="hl-title function_ invoke__">finish</span>(&amp;std::hash::BuildHasher::<span class="hl-title function_ invoke__">build_hasher</span>(</code>
+<code>    &amp;std::collections::hash_map::RandomState::<span class="hl-title function_ invoke__">new</span>(),</code>
+<code>  ))</code>
+<code>}</code></pre>
+
+</figure>
+<p>In Rust, hash maps include some amount of randomization to avoid exploitable pathological behavior due to collisions.
+The above snippet extracts that randomness.</p>
+</section>
+<section id="Non-Uniformly-Distributed-Random-Numbers-Uniformly-Distributed-Random-Non-Numbers">
+
+    <h2>
+    <a href="#Non-Uniformly-Distributed-Random-Numbers-Uniformly-Distributed-Random-Non-Numbers">Non-Uniformly Distributed Random Numbers, Uniformly Distributed Random Non-Numbers. </a>
+    </h2>
+<p>Good PRNG gives you a sequence of <code>u32</code> numbers where each number is as likely as every other one.
+You can convert that to a number from 0 to 10 with <code>random_u32() % 10</code>.
+This will be good enough for most purposes, but will fail rigorous statistical tests.
+Because 2<sup>32</sup> isn&rsquo;t evenly divisible by 10, 0 would be ever so slightly more frequent than <code>9</code>.
+There is an algorithm to do this correctly (if <code>random_u32()</code> is very large, and falls into the literal remainder after dividing 2<sup>32</sup> by 10, throw it away and try again).</p>
+<p>Sometimes you you want to use <code>random_u32()</code> to generate other kinds of random things, like a random point on a 3D sphere, or a random permutation.
+There are also algorithms for that.</p>
+<p>Sphere: generate random point in the unit cube; if it is also in the unit ball, project it onto the surface, otherwise throw it away and try again.</p>
+<p>Permutation: naive algorithm of selecting a random element to be the first, then selecting a random element among the rest to be the second, etc, works.</p>
+<p>There are libraries which provide collections of such algorithms.
+For example, <code>fastrand</code> includes most common ones, like generating numbers in range, generating floating point numbers or shuffling slices.</p>
+<p><code>rand</code> includes more esoteric cases line the aforementioned point on a sphere or a normal distribution.</p>
+</section>
+<section id="Ambient-Global-Source-Of-Random-Numbers">
+
+    <h2>
+    <a href="#Ambient-Global-Source-Of-Random-Numbers">Ambient Global Source Of Random Numbers </a>
+    </h2>
+<p>It is customary to expect existence of a global random number generator seeded for you.
+This is an anti-pattern &mdash; in the overwhelming majority of cases, passing a random number generator explicitly leads to better software.
+In particular, this is a requirement for deterministic tests.</p>
+<p>In any case, this functionality can be achieved by storing a state of PRNG in a thread local:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">use</span> std::cell::Cell;</code>
+<code></code>
+<code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">thread_local_random_u32</span>() <span class="hl-punctuation">-&gt;</span> <span class="hl-type">u32</span> {</code>
+<code>  thread_local! {</code>
+<code>      <span class="hl-keyword">static</span> STATE: Cell&lt;<span class="hl-type">u64</span>&gt; = Cell::<span class="hl-title function_ invoke__">new</span>(<span class="hl-title function_ invoke__">random_seed</span>())</code>
+<code>  }</code>
+<code>  STATE.<span class="hl-title function_ invoke__">with</span>(|cell| {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">state</span> = cell.<span class="hl-title function_ invoke__">get</span>();</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">result</span> = <span class="hl-title function_ invoke__">random_u32</span>(&amp;<span class="hl-keyword">mut</span> state);</code>
+<code>    cell.<span class="hl-title function_ invoke__">set</span>(state);</code>
+<code>    result</code>
+<code>  })</code>
+<code>}</code></pre>
+
+</figure>
+</section>
+<section id="rand">
+
+    <h2>
+    <a href="#rand">rand </a>
+    </h2>
+<p><a href="https://lib.rs/rand"><code>rand</code></a> is an umbrella crate which includes all of the above.
+<code>rand</code> also provides flexible trait-based &ldquo;plugin&rdquo; interface, allowing you to mix and match different combinations of PRNGs and algorithms.
+User interface of <code>rand</code> is formed primarily by extension traits.</p>
+</section>
+<section id="Kinds-Of-Randomness">
+
+    <h2>
+    <a href="#Kinds-Of-Randomness">Kinds Of Randomness </a>
+    </h2>
+<p>Circling back to the beginning of the post, it is very important to distinguish between the two use-cases:</p>
+<ul>
+<li>
+using unpredictable data for cryptography
+</li>
+<li>
+using statistically uniform random data for stochastic algorithms
+</li>
+</ul>
+<p>Although the two use-cases both have &ldquo;randomness&rdquo; in their name, they are disjoint, and underlying algorithms and APIs don&rsquo;t have anything in common.
+They are physically different: one is a syscall, another is a pure function mapping integers to integers.</p>
+</section>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2023-01-04-on-random-numbers.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

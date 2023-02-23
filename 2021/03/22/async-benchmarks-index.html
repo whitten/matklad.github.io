@@ -1,0 +1,210 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Async Benchmarks Index</title>
+  <meta name="description" content="I don't understand performance characteristics of async programming when applied to typical HTTP based web applications.
+Let's say we have a CRUD app with a relational database, where a typical request results in N queries to the database and transfers M bytes over the network.
+How much (orders of magnitude?) faster/slower would an async solution be in comparison to a threaded solution?">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2021/03/22/async-benchmarks-index.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Async-Benchmarks-Index">Async Benchmarks Index <time datetime="2021-03-22">Mar 22, 2021</time></a>
+    </h1>
+<p>I don&rsquo;t understand performance characteristics of &ldquo;async&rdquo; programming when applied to typical HTTP based web applications.
+Let&rsquo;s say we have a CRUD app with a relational database, where a typical request results in N queries to the database and transfers M bytes over the network.
+How much (orders of magnitude?) faster/slower would an &ldquo;async&rdquo; solution be in comparison to a &ldquo;threaded&rdquo; solution?</p>
+<p>In this <em>live</em> post, I am collecting the benchmarks that help to shed the light on this and related questions.
+Note that I am definitely not the right person to do this work, so, if there is a better resource, I&rsquo;ll gladly just use that instead.
+Feel free to <a href="https://github.com/matklad/matklad.github.io/edit/master/_posts/2021-03-22-async-benchmarks-index.adoc">send pull requests</a> with benchmarks!
+Every benchmark will be added, but some might go to the rejected section.</p>
+<p>I am interested in understanding differences between several execution models, regardless of programming language:</p>
+<dl>
+<dt>Threads:</dt>
+<dd>
+<p>Good old POSIX threads, as implemented on modern Linux.</p>
+</dd>
+<dt>Stackful Coroutines</dt>
+<dd>
+<p>M:N threading, which expose the same programming model as threads, but are implemented by multiplexing several user-space coroutines over a single OS-level thread.
+The most prominent example here is Go</p>
+</dd>
+<dt>Stackless Coroutines</dt>
+<dd>
+<p>In this model, each concurrent computation is represented by a fixed-size state machine which reacts to events.
+This model often uses <code>async / await</code> syntax for describing and composing state machines using standard control flow constructs.</p>
+</dd>
+<dt>Threads With Cooperative Scheduling</dt>
+<dd>
+<p>This is a mostly hypothetical model of OS threads with an additional primitive for directly switching between two threads of the same process.
+It is not implemented on Linux (see <a href="https://www.youtube.com/watch?v=KXuZi9aeGTw">this presentation</a> for some old work towards that).
+It is implemented on Windows under the &ldquo;fiber&rdquo; branding.</p>
+</dd>
+</dl>
+<p>I am also interested in Rust&rsquo;s specific implementation of stackless coroutines</p>
+<section id="Benchmarks">
+
+    <h2>
+    <a href="#Benchmarks">Benchmarks </a>
+    </h2>
+<dl>
+<dt><a href="https://github.com/jimblandy/context-switch">https://github.com/jimblandy/context-switch</a></dt>
+<dd>
+<p>This is a micro benchmark comparing the cost of primitive operations of threads and stackless as implemented in Rust coroutines.
+Findings:</p>
+<ul>
+<li>
+Thread creation is order of magnitude slower
+</li>
+<li>
+Threads use order of magnitude more RAM.
+</li>
+<li>
+IO-related context switches take the same time
+</li>
+<li>
+Thread-to-thread context switches (channel sends) take the same time, <em>if</em> threads are pinned to one core.
+This is surprising to me.
+I&rsquo;d expect channel send to be significantly more efficient for either stackful or stackless coroutines.
+</li>
+<li>
+Thread-to-thread context switches are order of magnitude slower if there&rsquo;s no pinning
+</li>
+<li>
+Threads hit non-memory resource limitations quickly (it&rsquo;s hard to spawn &gt; 50k threads).
+</li>
+</ul>
+</dd>
+<dt><a href="https://github.com/jkarneges/rust-async-bench">https://github.com/jkarneges/rust-async-bench</a></dt>
+<dd>
+<p>Micro benchmark which compares Rust&rsquo;s implementation of stackless coroutines with a manually coded state machine.
+Rust&rsquo;s async/await turns out to not be zero-cost, pure overhead is about 4x.
+The absolute numbers are still low though, and adding even a single syscall of work reduces the difference to only 10%</p>
+</dd>
+<dt><a href="https://matklad.github.io/2021/03/12/goroutines-are-not-significantly-smaller-than-threads.html">https://matklad.github.io/2021/03/12/goroutines-are-not-significantly-smaller-than-threads.html</a></dt>
+<dd>
+<p>This is a micro benchmark comparing just the memory overhead of threads and stackful coroutines as implemented in Go.
+Threads are &ldquo;times&rdquo;, but not &ldquo;orders of magnitude&rdquo; larger.</p>
+</dd>
+<dt><a href="https://calpaterson.com/async-python-is-not-faster.html">https://calpaterson.com/async-python-is-not-faster.html</a></dt>
+<dd>
+<p>Macro benchmark which compares many different Python web frameworks.
+The conclusion is that <code>async</code> is worse for both latency and throughput.
+Note two important things.
+<em>First</em>, the servers are run behind a reverse proxy (nginx), which drastically changes IO patterns that are observed by the server.
+<em>Second</em>, Python is not the fastest language, so throughput is roughly correlated with the amount of C code in the stack.</p>
+<p>There is also <a href="https://blog.miguelgrinberg.com/post/ignore-all-web-performance-benchmarks-including-this-one">a rebuttal post</a>.</p>
+</dd>
+</dl>
+</section>
+<section id="Rejected-Benchmarks">
+
+    <h2>
+    <a href="#Rejected-Benchmarks">Rejected Benchmarks </a>
+    </h2>
+<dl>
+<dt><a href="https://matej.laitl.cz/bench-actix-rocket/">https://matej.laitl.cz/bench-actix-rocket/</a></dt>
+<dd>
+<p>This is a macro benchmark comparing performance of sync and async Rust web servers.
+This is the kind of benchmark I want to see, and the analysis is exceptionally good.
+Sadly, a big part of the analysis is fighting with unreleased version of software and working around bugs, so I don&rsquo;t trust that the results are representative.</p>
+</dd>
+<dt><a href="https://www.techempower.com/benchmarks/">https://www.techempower.com/benchmarks/</a></dt>
+<dd>
+<p>This is a micro benchmark that pretends to be a macro benchmark.
+The code is overly optimized to fit a very specific task.
+I don&rsquo;t think the results are easily transferable to real-world applications.
+At the same time, lack of the analysis and the &ldquo;macro&rdquo; scale of the task itself doesn&rsquo;t help with building a mental model for explaining the observed performance.</p>
+</dd>
+<dt><a href="https://inside.java/2020/08/07/loom-performance">https://inside.java/2020/08/07/loom-performance</a></dt>
+<dd>
+<p>The opposite of a benchmark actually.
+This post gives a good theoretical overview of why async might lead to performance improvements.
+Sadly, it drops the ball when it comes to practice:</p>
+
+<figure class="blockquote">
+<blockquote><p>millions of user-mode threads instead of the meager thousands the OS can support.</p>
+</blockquote>
+
+</figure>
+<p>What is the limiting factor for OS threads?</p>
+</dd>
+</dl>
+</section>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2021-03-22-async-benchmarks-index.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

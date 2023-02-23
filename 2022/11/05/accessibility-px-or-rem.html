@@ -1,0 +1,232 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Accessibility: px or rem?</title>
+  <meta name="description" content="The genre of this post is: I am having opinions on something I am not an expert at, so hopefully the Internet would correct me.">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2022/11/05/accessibility-px-or-rem.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Accessibility-px-or-rem">Accessibility: px or rem? <time datetime="2022-11-05">Nov 5, 2022</time></a>
+    </h1>
+<p>The genre of this post is: &ldquo;I am having opinions on something I am not an expert at, so hopefully the Internet would correct me&rdquo;.</p>
+<p>The specific question in question is:</p>
+
+<figure class="blockquote">
+<blockquote><p>Should you use <code>px</code> or <code>rem</code> units in your CSS?</p>
+</blockquote>
+
+</figure>
+<p>I am not a web developer, but I do have a blog where I write CSS myself, and I very much want to do the right thing.
+I was researching and agonizing over this question for years, as I wasn&rsquo;t able to find a conclusive argument one way or another.
+So I am writing one.</p>
+<p>This isn&rsquo;t ideal, but I am lazy, so this post assumes that you already did the research and understand the mechanics of and the difference between <code>px</code>, <code>em</code>, and <code>rem</code>.
+And so, you position is probably:</p>
+
+<figure class="blockquote">
+<blockquote><p>Of course <code>rem</code>, because that honors user&rsquo;s setting for the font-size, and so is more accessible, although &hellip;</p>
+</blockquote>
+
+</figure>
+<p>Although there are buts:</p>
+<p><em>But</em> the default font-size is <code>16px</code>, and that&rsquo;s just too small.
+If you just roll with intended defaults, than the text will be painful to read even for folks with great vision!</p>
+<p><em>But</em> default font-size of <code>x</code> pixels just doesn&rsquo;t make sense: the actual perceived font size very much depends on the font itself.
+At <code>16px</code>, some fonts will be small, some tiny, and some maybe even just about right.</p>
+<p><em>But</em> the recommended way to <em>actually</em> use rem boils down to setting a percentage font-size for the root element, such that <code>1rem</code> is not the intended &ldquo;font size of the root element&rdquo;, but is equal to 1px (under default settings).
+Which, at this point, sounds like using pixels, just with more steps?
+After all, the modern browsers can zoom the pixels just fine?</p>
+<p>So, yeah, lingering doubts&hellip;
+If you are like me, you painstakingly used <code>rem</code>&rsquo;s everywhere, and then <code>html { font-size: 22px }</code> because default is unusable, and percentage of default is stupidly ugly :-)</p>
+<hr>
+<p>So lets settle the question then.</p>
+<p>The practical data we want is what do the users actually do in practice?
+Do they zoom or do they change default font size?
+I have spent 10 minutes googling that, didn&rsquo;t find the answer.</p>
+<p>After that, I decided to just check how it actually works.
+So, I opened browser&rsquo;s settings, cranked the font size to the max, and opened Google.</p>
+<p>To be honest, that was the moment where the question was mentally settled for me.
+If Google&rsquo;s search page doesn&rsquo;t respect user-agent&rsquo;s default font-size, it&rsquo;s an indirect, but also very strong, evidence that that&rsquo;s not a meaningful thing to do.</p>
+<p>The result of my ad-hoc survey:</p>
+<div class="two-col">
+<dl>
+<dt>Don&rsquo;t care:</dt>
+<dd>
+<ul>
+<li>
+Google
+</li>
+<li>
+Lobsters
+</li>
+<li>
+Hackernews
+</li>
+<li>
+Substack
+</li>
+<li>
+antirez.com
+</li>
+<li>
+tonsky.me
+</li>
+<li>
+New Reddit
+</li>
+</ul>
+</dd>
+</dl>
+<p><br>
+</p>
+<dl>
+<dt>Embiggen:</dt>
+<dd>
+<ul>
+<li>
+Wikipedia
+</li>
+<li>
+Discourse
+</li>
+<li>
+Old Reddit
+</li>
+</ul>
+</dd>
+</dl>
+</div>
+<p>Google versus Wikipedia it is, eh?
+But this is actually quite informative: if you adjust your browser&rsquo;s default font-size, you are in an &ldquo;Alice in the Wonderland&rdquo; version of the web which alternates between too large and too small.</p>
+<p>The next useful question is: what about mobile?
+After some testing and googling, it seems that changing browser&rsquo;s default font-size is just not possible on the iPhone?
+That the only option is page zoom?</p>
+<p>Again, I don&rsquo;t actually have the data on whether users rely on zoom or on font size.
+But so far it looks like the user doesn&rsquo;t really have a choice?
+Only zoom seems to actually work in practice?</p>
+<p>The final bit of evidence which completely settled the question in my mind comes from this post:</p>
+<p><a href="https://www.craigabbott.co.uk/blog/accessibility-and-font-sizes">https://www.craigabbott.co.uk/blog/accessibility-and-font-sizes</a></p>
+<p>It tells us that</p>
+
+<figure class="blockquote">
+<blockquote><p>Using the wrong units of measurement in your Cascading Style Sheets (CSS) is a
+big barrier for many visually impaired users, and it can cause your website fail
+the Web Content Accessibility Guidelines (WCAG) 2.1 on
+<a href="https://www.w3.org/WAI/WCAG21/Understanding/resize-text.html">1.4.4 Resize text</a>.</p>
+</blockquote>
+
+</figure>
+<p>That WCAG document is really worth the read:</p>
+
+<figure class="blockquote">
+<blockquote><p>The scaling of content is primarily a user agent responsibility. User agents
+that satisfy UAAG 1.0 Checkpoint 4.1 allow users to configure text scale. The
+author&rsquo;s responsibility is to create Web content that does not prevent the
+user agent from scaling the content effectively. Authors may satisfy this
+Success Criterion by verifying that content does not interfere with user agent
+support for resizing text, including text-based controls, or by providing direct
+support for resizing text or changing the layout. An example of direct support
+might be via server-side script that can be used to assign different style
+sheets.</p>
+<p><strong><strong>The author cannot rely on the user agent to satisfy this Success Criterion
+for HTML content if users do not have access to a user agent with zoom support.
+For example, if they work in an environment that requires them to use IE 6.</strong></strong></p>
+<p>If the author is using a technology whose user agents do not provide zoom
+support, the author is responsible to provide this type of functionality
+directly or to provide content that works with the type of functionality
+provided by the user agent. If the user agent doesn&rsquo;t provide zoom functionality
+but does let the user change the text size, the author is responsible for
+ensuring that the content remains usable when the text is resized.</p>
+</blockquote>
+
+</figure>
+<p>My reading of the above text: it&rsquo;s on me, as an author, to ensure that my readers can scale the content using whatever method their user agent employs.
+If the UA can zoom, that&rsquo;s perfect, we are done.</p>
+<p>If the reader&rsquo;s actual UA can&rsquo;t zoom, but it can change default font size (eg, IE 6), then I need to support that.</p>
+<p>That&rsquo;s &hellip; most reasonable I guess?
+Just make sure that your actual users, in their actual use, can read stuff.
+And I am pretty sure my target audience doesn&rsquo;t use IE 6, which I don&rsquo;t support anyway.</p>
+<p><strong><strong>TL;DR</strong></strong> for the whole post:</p>
+<p>Use pixels.
+The goal is not to check the &ldquo;I suffered pain to make my website accessible&rdquo; checkbox, the goal is to make the site accessible to real users.
+There&rsquo;s an explicit guideline about that.
+There&rsquo;s a strong evidence that, barring highly unusual circumstances, real users zoom, and pixels zoom just fine.</p>
+<hr>
+<p>As a nice bonus, if you <em><em>don&rsquo;t</em></em> use rem, you make browser&rsquo;s font size setting more useful, because it can control the scale of the browser&rsquo;s own chrome (which is fixed) independently from the scale of websites (which vary).</p>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2022-11-05-accessibility-px-or-rem.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

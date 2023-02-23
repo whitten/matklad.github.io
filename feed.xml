@@ -1,0 +1,1974 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<link href="https://matklad.github.io/feed.xml" rel="self" type="application/atom+xml"/>
+<link href="https://matklad.github.io" rel="alternate" type="text/html"/>
+<updated>2023-02-23T21:13:06.806Z</updated>
+<id>https://matklad.github.io/feed.xml</id>
+<title type="html">matklad</title>
+<subtitle>Yet another programming blog by Alex Kladov aka matklad.</subtitle>
+<author><name>Alex Kladov</name></author>
+
+<entry>
+<title type="text">Why SAT Is Hard</title>
+<link href="https://matklad.github.io/2023/02/21/why-SAT-is-hard.html" rel="alternate" type="text/html" title="Self Modifying Code" />
+<published>2023-02-21T00:00:00+00:00</published>
+<updated>2023-02-21T00:00:00+00:00</updated>
+<id>https://matklad.github.io/2023/02/21/why-SAT-is-hard</id>
+<author><name>Alex Kladov</name></author>
+<summary type="html"><![CDATA[An introductory post about complexity theory today!
+It is relatively well-known that there exist so-called NP-complete problems --- particularly hard problems, such that, if you solve one of them efficiently, you can solve all of them efficiently.
+I think I've learned relatively early that, e.g., SAT is such a hard problem.
+I've similarly learned a bunch of specific examples of equally hard problems, where solving one solves the other.
+However, why SAT is harder than any NP problem remained a mystery for a rather long time to me.
+It is a shame --- this fact is rather intuitive and easy to understand.
+This post is my attempt at an explanation.
+It assumes some familiarity with the space, but it's not going to be too technical or thorough.]]></summary>
+<content type="html" xml:base="https://matklad.github.io/2023/02/21/why-SAT-is-hard.html"><![CDATA[
+    <h1>
+    <a href="#Why-SAT-Is-Hard">Why SAT Is Hard <time datetime="2023-02-21">Feb 21, 2023</time></a>
+    </h1>
+<p>An introductory post about complexity theory today!
+It is relatively well-known that there exist so-called NP-complete problems &mdash; particularly hard problems, such that, if you solve one of them efficiently, you can solve <em>all</em> of them efficiently.
+I think I&rsquo;ve learned relatively early that, e.g., SAT is such a hard problem.
+I&rsquo;ve similarly learned a bunch of specific examples of equally hard problems, where solving one solves the other.
+However, why SAT is harder than <em>any</em> NP problem remained a mystery for a rather long time to me.
+It is a shame &mdash; this fact is rather intuitive and easy to understand.
+This post is my attempt at an explanation.
+It assumes <em>some</em> familiarity with the space, but it&rsquo;s not going to be too technical or thorough.</p>
+<section id="Summary">
+
+    <h2>
+    <a href="#Summary">Summary </a>
+    </h2>
+<p>Let&rsquo;s say you are solving some search problem, like &ldquo;find a path that visits every vertex in a graph once&rdquo;.
+It is often possible to write a naive algorithm for it, where we exhaustively check every possible prospective solution:</p>
+
+<figure class="code-block">
+
+
+<pre><code>for every possible path:</code>
+<code>    if path visits every vertex once:</code>
+<code>        return path</code>
+<code>else:</code>
+<code>    return "no solution"</code></pre>
+
+</figure>
+<p>Although <em>checking</em> each specific candidate is pretty fast, the whole algorithm is exponential, because there are too many (exponent of) candidates.
+Turns out, it is possible to write &ldquo;check if solution fits&rdquo; part as a SAT formula!
+And, if you have a magic algorithm which solves SAT, you can use that to find a candidate solution which would work instead of enumerating all solutions!</p>
+<p>In other words, solving SAT removes &ldquo;search&rdquo; from &ldquo;search and check&rdquo;.</p>
+<p>That&rsquo;s more or less everything I wanted to say today, but let&rsquo;s make this a tiny bit more formal.</p>
+</section>
+<section id="Background">
+
+    <h2>
+    <a href="#Background">Background </a>
+    </h2>
+<p>We will be discussing algorithms and their runtime.
+Big-O notation is a standard instrument for describing performance of algorithms, as it erases small differences which depend on a particular implementation of the algorithm.
+Both 2N + 1000 and 100N are O(N), linear.</p>
+<p>In this post we will be even <em>less</em> precise.
+We will talk about <dfn>polynomial time</dfn> &mdash; an algorithm is polynomial if it is O(N<sup>k</sup>) for some k.
+For example, N<sup>100</sup> is polynomial, while 2<sup>N</sup> is not.</p>
+<p>We will also be thinking about Turing machines (<dfn>TM</dfn>s) as our implementation device.
+Programming algorithms directly on Turing machines is cumbersome, but TMs have two advantages for our use case:</p>
+<ul>
+<li>
+it&rsquo;s natural to define runtime of TM
+</li>
+<li>
+it&rsquo;s easy to simulate a TM as a part of some larger algorithm (an interpreter for a TM is a small program)
+</li>
+</ul>
+<p>Finally, we will only think about problems with binary answers (<dfn>decision problem</dfn>).
+&ldquo;Is there a solution to this formula?&rdquo; rather than &ldquo;what is the solution to this formula?&rdquo;.
+&ldquo;Is there a path in the graph of length at least N?&rdquo; rather than &ldquo;what is the longest path in this graph?&rdquo;.</p>
+</section>
+<section id="Definitions">
+
+    <h2>
+    <a href="#Definitions">Definitions </a>
+    </h2>
+<p>Intuitively, a problem is NP if it&rsquo;s easy to check that a solution is valid (even if <em>finding</em> the solution might be hard).
+This intuition doesn&rsquo;t exactly work for yes/no problems we are considering.
+To fix this, we will also provide a &ldquo;hint&rdquo; for the checker.
+For example, if the problem is &ldquo;is there a path of length N in a given graph?&rdquo; the hint will be a path.</p>
+<p>A decision problem is <dfn>NP</dfn>, if there&rsquo;s an algorithm that can verify a &ldquo;yes&rdquo; answer in polynomial time, given a suitable hint.</p>
+<p>That is, for every input where the answer is &ldquo;yes&rdquo; (and only for those inputs) there should be a hint that makes our verifying algorithm answer &ldquo;yes&rdquo;.</p>
+<p>Boolean satisfiability, or <dfn>SAT</dfn> is a decision problem where an input is a boolean formula like</p>
+
+<figure class="code-block">
+
+
+<pre><code>(A and B and !C) or</code>
+<code>(C and D) or</code>
+<code>!B</code></pre>
+
+</figure>
+<p>and the answer is &ldquo;yes&rdquo; if the formula evaluates to true for some variable assignment.</p>
+<p>It&rsquo;s easy to see that SAT is NP: the hint is variable assignment which satisfies the formula, and verifier evaluates the formula.</p>
+</section>
+<section id="Sketch-of-a-Proof">
+
+    <h2>
+    <a href="#Sketch-of-a-Proof">Sketch of a Proof </a>
+    </h2>
+<p>Turns out, there is the &ldquo;hardest&rdquo; problem in NP &mdash; solving just that single problem in polynomial time automatically solves every other NP problem in polynomial time (we call such problems <dfn>NP-complete</dfn>).
+Moreover, there&rsquo;s actually a bunch of such problems, and SAT is one of them.
+Let&rsquo;s see why!</p>
+<p>First, let&rsquo;s define a (somewhat artificial) problem which is trivially NP-complete.</p>
+<p>Let&rsquo;s start with this one: &ldquo;Given a Turing machine and an input for it of length N, will the machine output &ldquo;yes&rdquo; after N<sup>k</sup> steps?&rdquo;
+(here k is a fixed parameter; pedantically, I describe a family of problems, one for each k)</p>
+<p>This is <em>very</em> similar to a halting problem, but also much easier.
+We explicitly bound the runtime of the Turing machine by a polynomial, so we don&rsquo;t need to worry about &ldquo;looping forever&rdquo; case &mdash; that would be a &ldquo;no&rdquo; for us.
+The naive algorithm here works: we just run the given machine on a given input for a given amount of steps and look at the answer.</p>
+<p>Now, if we formulate the problem as &ldquo;<em>Is</em> there an input <strong><strong>I</strong></strong> for a given Turing machine <strong><strong>M</strong></strong> such that <strong><strong>M(I)</strong></strong> answers &ldquo;yes&rdquo; after N<sup>k</sup> steps?&rdquo; we get our NP-complete problem.
+It&rsquo;s trivially NP &mdash; the hint is the input that makes the machine answer &ldquo;yes&rdquo;, and the verifier just runs our TM with this input for N<sup>k</sup> steps.
+It can also be used to efficiently solve any other NP problem (e.g. SAT).
+Indeed, we can use the verifying TM as <strong><strong>M</strong></strong>, and that way find if there&rsquo;s any hint that makes it answer &ldquo;yes&rdquo;.</p>
+<p>This is a bit circular and hard to wrap ones head around, but, at the same time, trivial.
+We essentially just carefully stare at the definition of an NP problem, specifically produce an algorithm that can solve any NP problem by directly using the definition, and notice that the resulting algorithm is also NP.
+Now there&rsquo;s no surprise that there exists the hardest NP problem &mdash; we essentially <em>defined</em> NP such that this is the case.</p>
+<p>What is still a bit mysterious is why non-weird problems like SAT also turn out to be NP-complete?
+This is because SAT is powerful enough to encode a Turing machine!</p>
+<p><em>First</em>, note that we can encode a state of a Turing machine as a set of boolean variables.
+We&rsquo;ll need a boolean variable T<sub>i</sub> for each position on a tape.
+The tape is in general infinite, but all our Turing machines run for polynomial (finite) time, so they use only a finite amount of cells, and it&rsquo;s enough to create variables only for those cells.
+Position of the head can also be described by a set of booleans variables.
+For example, we can have a P<sub>i</sub> &ldquo;is the head at a cell <code>i</code>&rdquo; variable for each cell.
+Similarly, we can encode finite number of states our machine can be in as set of S<sub>i</sub> variables (is the machine in state <code>i</code>?).</p>
+<p><em>Second</em>, we can write a set of boolean equations which describe a single transition of our Turing machine.
+For example value of cell i at the second step T2<sub>i</sub> will depend on the value on the previous step T1<sub>i</sub>, whether the head was at <code>i</code> (P1<sub>i</sub>) and the rules of our specific states.
+For example, if machine flips bits in state <code>0</code> and keeps then in state <code>1</code>, the formula we get for each sell is</p>
+
+<figure class="code-block">
+
+
+<pre><code>T2_i &lt;=&gt;</code>
+<code>  (!P1_i and T1_i) # head is not on our cell, it can't change</code>
+<code>or (P1_i and (</code>
+<code>    S1_0 and !T1_i # flip case</code>
+<code>or  S1_1 and T1_i  # keep case</code>
+<code>))</code></pre>
+
+</figure>
+<p>We can write similar formulas for changes of P and S families of variables.</p>
+<p><em>Third</em>, after we wrote transition formula for a single step, we can stack several such formulas on top of each other to get a formula for N steps.</p>
+<p>Now let&rsquo;s come back to our universal problem: &ldquo;is there an input which makes a given Turing machine answer &ldquo;yes&rdquo; in N<sup>k</sup> steps?&rdquo;.
+At this point, it&rsquo;s clear that we can replace a &ldquo;Turing machine with N<sup>k</sup> steps&rdquo; with our transition formula duplicated N<sup>k</sup> times.
+So, the question of existence of an input for a Turing machine reduces to the question of existence of a solution to a (big, but still polynomial) SAT formula.</p>
+<p>And this concludes the sketch!</p>
+</section>
+<section id="Summary-Again">
+
+    <h2>
+    <a href="#Summary-Again">Summary, Again </a>
+    </h2>
+<p>SAT is hard, because it allows encoding Turing machine transitions.
+We can&rsquo;t encode loops in SAT, but we can encode &ldquo;N steps of a Turing machine&rdquo; by repeating the same formula N times with small variations.
+So, if we know that a particular Turing machine runs in polynomial time, we <em>can</em> encode it by a polynomially-sized formula.
+(see also <a href="https://mochiro.moe/posts/09-meson-raytracer/">pure meson ray-tracer</a> for a significantly more practical application of a similar idea).</p>
+<p>And that means every problem that can be solved by a brute-force search over all solutions can be reduced to a SAT instance, by encoding the body of the search loop as a SAT formula!</p>
+</section>
+]]></content>
+</entry>
+
+<entry>
+<title type="text">Three-State Stability</title>
+<link href="https://matklad.github.io/2023/02/16/three-state-stability.html" rel="alternate" type="text/html" title="Self Modifying Code" />
+<published>2023-02-16T00:00:00+00:00</published>
+<updated>2023-02-16T00:00:00+00:00</updated>
+<id>https://matklad.github.io/2023/02/16/three-state-stability</id>
+<author><name>Alex Kladov</name></author>
+<summary type="html"><![CDATA[Usually, when discussing stability of the APIs (in a broad sense; databases and programming languages are also APIs), only two states are mentioned:]]></summary>
+<content type="html" xml:base="https://matklad.github.io/2023/02/16/three-state-stability.html"><![CDATA[
+    <h1>
+    <a href="#Three-State-Stability">Three-State Stability <time datetime="2023-02-16">Feb 16, 2023</time></a>
+    </h1>
+<p>Usually, when discussing stability of the APIs (in a broad sense; databases and programming languages are also APIs), only two states are mentioned:</p>
+<ul>
+<li>
+an API is stable if there&rsquo;s a promise that all future changes would be backwards compatible
+</li>
+<li>
+otherwise, it is unstable
+</li>
+</ul>
+<p>This is reflected in, e.g, SemVer: before 1.0, anything goes, after 1.0 you only allow to break API if you bump major version.</p>
+<p>I think the <em>actual</em> situation in the real world is a bit more nuanced than that.
+In addition to clearly stable or clearly unstable, there&rsquo;s often a poorly defined third category.
+It often manifests as either:</p>
+<ul>
+<li>
+some technically non-stable version of the project (e.g., <code>0.2</code>) becoming widely used and de facto stable
+</li>
+<li>
+some minor but technically breaking quietly slipping in shortly after 1.0
+</li>
+</ul>
+<p>Here&rsquo;s what I think happens over a lifetime of a typical API:</p>
+<p>In the first phase, the API is actively evolving.
+There is a promise of anti-stability &mdash; there&rsquo;s constant change and a lot of experimentation.
+Almost no one is using the project seriously:</p>
+<ul>
+<li>
+the API is simply incomplete, there are large gaps in functionality
+</li>
+<li>
+chasing upstream requires continuous, large effort
+</li>
+<li>
+there&rsquo;s no certainty that the project will, in fact, ship a stable version, rather than die
+</li>
+</ul>
+<p>In the second phase, the API is <em>mostly</em> settled.
+It does everything it needs to do, and the shape feels mostly right.
+Transition to this state happens when the API maintainers feel like they nailed down everything.
+However, no wide deployment had happened, so there might still be minor, but backwards incompatible adjustments wanting to be made.
+It makes sense to use the API for all <em>active</em> projects (though it costs you an innovation token).
+The thing basically works, you <em>might</em> need to adjust your code from time to time, occasionally an adjustment is not trivial, but the overall expected effort is low.
+The API is fully production ready, and has everything except stability.
+If you write a program on top of the API today, and try to run it ten years later, it will fail.
+But if you are making your own releases a couple of times a year, you should be fine.</p>
+<p>In the third phase, the API is fully stable, and no backwards-incompatible changes are expected.
+Otherwise, it is identical to the second phase.
+Transition to this phase happens after:</p>
+<ul>
+<li>
+early adopters empirically stop uncovering deficiencies in the API
+</li>
+<li>
+API maintainers make a commitment to maintain stability.
+</li>
+</ul>
+<p>In other words, it is not unstable -&gt; stable, it is rather:</p>
+<ul>
+<li>
+experimental (unstable, not fit for production)
+</li>
+<li>
+production ready (still unstable, but you can budget-in a bounded amount of upgrade work)
+</li>
+<li>
+stable (no maintenance work is required)
+</li>
+</ul>
+<p>We don&rsquo;t have great, catchy terms to describe the second bullet, so it gets lumped together with the first or the last one.</p>
+]]></content>
+</entry>
+
+<entry>
+<title type="text">&lt;3 Deno</title>
+<link href="https://matklad.github.io/2023/02/12/a-love-letter-to-deno.html" rel="alternate" type="text/html" title="Self Modifying Code" />
+<published>2023-02-12T00:00:00+00:00</published>
+<updated>2023-02-12T00:00:00+00:00</updated>
+<id>https://matklad.github.io/2023/02/12/a-love-letter-to-deno</id>
+<author><name>Alex Kladov</name></author>
+<summary type="html"><![CDATA[Deno is a relatively new JavaScript runtime.
+I find quite interesting and aesthetically appealing, in-line with the recent trend to rein in the worse-is-better law of software evolution.
+This post explains why.]]></summary>
+<content type="html" xml:base="https://matklad.github.io/2023/02/12/a-love-letter-to-deno.html"><![CDATA[
+    <h1>
+    <a href="#3-Deno">&lt;3 Deno <time datetime="2023-02-12">Feb 12, 2023</time></a>
+    </h1>
+<p><a href="https://deno.land/manual@v1.30.3/introduction">Deno</a> is a relatively new JavaScript runtime.
+I find quite interesting and aesthetically appealing, in-line with the recent trend to rein in the worse-is-better law of software evolution.
+This post explains why.</p>
+<p>The way I see it, the primary goal of Deno is to simplify development of software, relative to the status quo.
+Simplifying means removing the accidental complexity.
+To me, a big source of accidental complexity in today&rsquo;s software are implicit dependencies.
+Software is built of many components, and while some components are relatively well-defined (Linux syscall interface, amd64 ISA), others are much less so.
+Example: upgrading OpenSSL for your Rust project from 1.1.1 to 3.0.0 works on your machine, but breaks on CI, because 3.0.0 now needs some new perl module, which is <em>expected</em> to usually be there together with the perl installation, but that is not universally so.
+One way to solve these kinds of problems is by putting <del>an abstraction boundary</del> a docker container around them.
+But a different approach is to very carefully avoid creating the issues.
+Deno, in the general sense, picks this second noble hard path.</p>
+<p>One of the first problems in this area is bootstrapping.
+In general, you can paper over quite a bit of complexity by writing some custom script to do all the grunt work.
+But how do you run it?</p>
+<p>One answer is to use a shell script, as the shell is already installed.
+Which shell? Bash, sh, powershell?
+Probably POSIX sh is a sane choice, Windows users can just run <del>a docker container</del> a Linux in their subsystem.
+You&rsquo;ll also want to install shellcheck to make sure you don&rsquo;t accidentally use bashisms.
+At some point your script grows too large, and you rewrite it in Python.
+You now have to install Python, I&rsquo;ve heard it&rsquo;s much easier these days on Windows.
+Of course, you&rsquo;ll run that inside <del>a docker container</del> a virtual environment.
+And you would be careful to use <code>python3 -m pip</code> rather than <code>pip3</code> to make sure you use the right thing.</p>
+<p>Although scripting and plumbing should be a way to combat complexity, just getting to the point where every contributor to your software can run scripts requires <del>a docker container</del> a great deal of futzing with the environment!</p>
+<p>Deno doesn&rsquo;t solve the problem of just being already there on every imaginable machine.
+However, it strives very hard to not create additional problems once you get the <code>deno</code> binary onto the machine.
+Some manifestations of that:</p>
+<p>Deno comes with a code formatter (<code>deno fmt</code>) and an LSP server (<code>deno lsp</code>) out of the box.
+The high order bit here is not that these are high-value features which drive productivity (though that is so), but that you don&rsquo;t need to pull extra deps to get these features.
+Similarly, Deno is a TypeScript runtime &mdash; there&rsquo;s no transpilation step involved, you just <code>deno main.ts</code>.</p>
+<p>Deno does not rely on system&rsquo;s shell.
+Most scripting environments, including node, python, and ruby, make a grave mistake of adding an API to spawn a process intermediated by the shell.
+This is slow, insecure, and brittle (<em>which</em> shell was that, again?).
+I have a  <a href="https://matklad.github.io/2021/07/30/shell-injection.html">longer post</a> about the issue.
+Deno doesn&rsquo;t have this vulnerable API.
+Not that &ldquo;not having an API&rdquo; is a particularly challenging technical achievement, but it <em>is</em> better than the current default.</p>
+<p>Deno has a correctly designed tasks system.
+Whenever you do a non-trivial software project, there inevitably comes a point where you need to write some software to orchestrate your software.
+Accidental complexity creeps in the form of a <code>Makefile</code> (<em>which</em> <code>make</code> is that?) or a <code>./scripts/*.sh</code> directory.
+Node (as far as I know) pioneered a great idea to treat these as a first-class concern of the project, by including a <code>scripts</code> field in the <code>package.json</code>.
+It then botched the execution by running the scripts through system&rsquo;s shell, which downgrades it to <code>./scripts</code> directory with more indirection.
+In contrast, Deno runs the scripts in <a href="https://github.com/denoland/deno_task_shell"><code>deno_task_shell</code></a> &mdash; a purpose-built small cross-platform shell.
+You no longer need to worry that <code>rm</code> might behave differently depending on <code>which rm</code> it is, because it&rsquo;s a shell&rsquo;s built-in now.</p>
+<p>These are all engineering nice-to-haves.
+They don&rsquo;t necessary matter as much in isolation, but together they point at project values which align very well with my own ones.
+But there are a couple of innovative, bigger features as well.</p>
+<p>The first big feature is the permissions system.
+When you run a Deno program, you need to specify explicitly which OS resources it can access.
+Pinging <code>google.com</code> would require an explicit opt-in.
+You can safely run</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-title function_">$</span> deno run https://shady.website.eu/caesar-cipher.ts &lt; in.txt &gt; out.txt</code></pre>
+
+</figure>
+<p>and be sure that this won&rsquo;t steal your secrets.
+Of course, it can still burn the CPU indefinitely or fill <code>out.txt</code> with garbage, but it won&rsquo;t be able to read anything beyond explicitly passed input.
+For many, if not most, scripting tasks this is a nice extra protection from supply chain attacks.</p>
+<p>The second big feature is Deno&rsquo;s interesting, minimal, while still practical, take on dependency management.
+First, it goes without saying that there are no global dependencies.
+Everything is scoped to the current project.
+Naturally, there are also lockfiles with checksums.</p>
+<p>However, there&rsquo;s no package registry or even a separate package manager.
+In Deno, a dependency is always a URL.
+The runtime itself understands URLs, downloads their contents and loads the resulting TypeScript or JavaScript.
+Surprisingly, it feels like this is enough to express various dependency patterns.
+For example, if you need a centralized registry, like <a href="https://deno.land/x">https://deno.land/x</a>, you can use URLs pointing to that!
+URLs can also express semver, with <code>foo@1</code> redirecting to <code>foo@1.2.3</code>.
+<a href="https://deno.land/manual@v1.30.3/basics/import_maps">Import maps</a> are a standard, flexible way to remap dependencies, for when you need to tweak something deep in the tree.
+Crucially, in addition to lockfiles Deno comes with a built in <code>deno vendor</code> command, which fetches all of the dependencies of the current project and puts them into a subfolder, making production deployments immune to dependencies&rsquo; hosting failures.</p>
+<p>Deno&rsquo;s approach to built-in APIs beautifully bootstraps from its url-based dependency management.
+First, Deno provides a set of runtime APIs.
+These APIs are absolutely stable, follow existing standards (eg, <code>fetch</code> for doing networking), and play the role of providing cross-platform interface for the underlying OS.
+Then there&rsquo;s the standard library.
+There&rsquo;s an ambition to provide a comprehensive batteries included standard library, which is vetted by core developers, a-la Go.
+At the same time, <em>huge</em> stdlib requires a lot of work over many years.
+So, as a companion to a stable 1.30.3 runtime APIs, which is a part of <code>deno</code> binary, there&rsquo;s 0.177.0 version of stdlib, which is downloaded just like any other dependency.
+I am fairly certain that in time this will culminate in actually stable, comprehensive, and high quality stdlib.</p>
+<p>All these together mean that you can be sure that, if you got <code>deno --version</code> working, then <code>deno run your-script.ts</code> will always work, as the surface area for things to go wrong due to differences in the environment is drastically cut.</p>
+<p>The only big drawback of Deno is the language &mdash; all this runtime awesomeness is tied to TypeScript.
+JavaScript is a curious beast &mdash; post ES6, it is actually quite pleasant to use, and has some really good parts, like injection-proof template literal semantics.
+But all the old <a href="https://www.destroyallsoftware.com/talks/wat">WATs</a> like</p>
+
+<figure class="code-block">
+
+
+<pre><code>[<span class="hl-string">&quot;10&quot;</span>, <span class="hl-string">&quot;10&quot;</span>, <span class="hl-string">&quot;10&quot;</span>].<span class="hl-title function_">map</span>(<span class="hl-built_in">parseInt</span>)</code></pre>
+
+</figure>
+<p>are still there.
+TypeScript does an admirable job with typing JavaScript, as it exists in the wild, but the resulting type system is not simple.
+It seems that, linguistically, something substantially better than TypeScript is possible in theory.
+But among the actually existing languages, TypeScript seems like a solid choice.</p>
+<p>To sum up, historically the domain of &ldquo;scripting&rdquo; and &ldquo;glue code&rdquo; was plagued by the problem of accidentally supergluing oneself to a particular UNIX flavor at hand.
+Deno finally seems like a technology that tries to solve this issue of implicit dependencies by not having the said dependencies <del>instead of putting everything in a docker container</del>.</p>
+]]></content>
+</entry>
+
+<entry>
+<title type="text">How a Zig IDE Could Work</title>
+<link href="https://matklad.github.io/2023/02/10/how-a-zig-ide-could-work.html" rel="alternate" type="text/html" title="Self Modifying Code" />
+<published>2023-02-10T00:00:00+00:00</published>
+<updated>2023-02-10T00:00:00+00:00</updated>
+<id>https://matklad.github.io/2023/02/10/how-a-zig-ide-could-work</id>
+<author><name>Alex Kladov</name></author>
+<summary type="html"><![CDATA[Zig is a very interesting language from an IDE point of view.
+Some aspects of it are friendly to IDEs, like a very minimal and simple-to-parse syntax
+(Zig can even be correctly lexed line-by-line, very cool!),
+the absence of syntactic macros, and ability to do a great deal of semantic analysis on a file-by-file basis, in parallel.
+On the other hand, comptime.
+I accidentally spent some time yesterday thinking about how to build an IDE for that, this post is a result.]]></summary>
+<content type="html" xml:base="https://matklad.github.io/2023/02/10/how-a-zig-ide-could-work.html"><![CDATA[
+    <h1>
+    <a href="#How-a-Zig-IDE-Could-Work">How a Zig IDE Could Work <time datetime="2023-02-10">Feb 10, 2023</time></a>
+    </h1>
+<p>Zig is a very interesting language from an IDE point of view.
+Some aspects of it are friendly to IDEs, like a very minimal and simple-to-parse syntax
+(Zig can even be <em>correctly</em> lexed line-by-line, very cool!),
+the absence of syntactic macros, and ability to do a great deal of semantic analysis on a file-by-file basis, in parallel.
+On the other hand, <code>comptime</code>.
+I accidentally spent some time yesterday thinking about how to build an IDE for that, this post is a result.</p>
+<section id="How-Does-the-Zig-Compiler-Work">
+
+    <h2>
+    <a href="#How-Does-the-Zig-Compiler-Work">How Does the Zig Compiler Work? </a>
+    </h2>
+<p>It&rsquo;s useful to discuss a bit how the compiler works today.
+For something more thorough, refer to this excellent series of posts: <a href="https://mitchellh.com/zig">https://mitchellh.com/zig</a>.</p>
+<p>First, each Zig file is parsed into an AST.
+Delightfully, parsing doesn&rsquo;t require any context whatsoever, it&rsquo;s a pure <code>[]const u8 -&gt; Ast</code> function, and the resulting Ast is just a piece of data.</p>
+<p>After parsing, the Ast is converted to an intermediate representation, Zir.
+This is where Zig diverges a bit from more typical statically compiled languages.
+Zir actually resembles something like Python&rsquo;s bytecode &mdash; an intermediate representation that an interpreter for a dynamically-typed language would use.
+That&rsquo;s because it <em>is</em> an interpreter&rsquo;s IR &mdash; the next stage would use Zir to evaluate comptime.</p>
+<p>Let&rsquo;s look at an example:</p>
+
+<figure class="code-block">
+
+
+<pre><code>fn generic_add(comptime T: type, lhs: T, rhs: T) T {</code>
+<code>  return lhs + rhs;</code>
+<code>}</code></pre>
+
+</figure>
+<p>Here, the Zir for <code>generic_add</code> would encode addition as a typeless operation, because we don&rsquo;t know types at this point.
+In particular, <code>T</code> can be whatever.
+When the compiler would <em>instantiate</em> <code>generic_add</code> with different <code>T</code>s, like <code>generic_add(u32, ...)</code>, <code>generic_add(f64, ...)</code>, it will re-use the same Zir for different instantiations.
+That&rsquo;s the two purposes of Zir: to directly evaluate code at compile time, and to serve as a template for monomorphisation.</p>
+<p>The next stage is where the magic happens &mdash; the compiler partially evaluates dynamically typed Zir to convert it into a fairly standard statically typed IR.
+The process starts at the <code>main</code> function.
+The compiler more or less tries to evaluate the Zir.
+If it sees something like <code>90 + 2</code>, it directly evaluates that to <code>92</code>.
+For something which can&rsquo;t be evaluated at compile time, like <code>a + 2</code> where <code>a</code> is a runtime variable, the compiler generates typed IR for addition (as, at this point, we already know the type of <code>a</code>).</p>
+<p>When the compiler sees something like</p>
+
+<figure class="code-block">
+
+
+<pre><code>const T = u8;</code>
+<code>const x = generic_add(T, a, b);</code></pre>
+
+</figure>
+<p>the compiler monomorphises the generic call.
+It checks that all comptime arguments (<code>T</code>) are fully evaluated, and starts partial evaluation of the called function, with comptime parameters fixed to particular values (this of course is memoized).</p>
+<p>The whole process is lazy &mdash; only things transitively used from main are analyzed.
+Compiler won&rsquo;t complain about something like</p>
+
+<figure class="code-block">
+
+
+<pre><code>fn unused() void {</code>
+<code>    1 + "";</code>
+<code>}</code></pre>
+
+</figure>
+<p>This looks perfectly fine at the Zir level, and the compiler will not move beyond Zir unless the function is actually called somewhere.</p>
+</section>
+<section id="And-an-IDE">
+
+    <h2>
+    <a href="#And-an-IDE">And an IDE? </a>
+    </h2>
+<p>IDE adds several dimensions to the compiler:</p>
+<ul>
+<li>
+works with incomplete and incorrect code
+</li>
+<li>
+works with code which rapidly changes over time
+</li>
+<li>
+gives results immediately, there is no edit/compile cycle
+</li>
+<li>
+provides source to source transformations
+</li>
+</ul>
+<p>The hard bit is the combination of rapid changes and immediate results.
+This is usually achieved using some smart, language-specific combination of</p>
+<ul>
+<li>
+<p>Incrementality: although changes are frequent and plentiful, they are local, and it is often possible to re-use large chunks of previous analysis.</p>
+</li>
+<li>
+<p>Laziness: unlike a compiler, an IDE does not need full analysis results for the entirety of the codebase.
+Usually, analysis of the function which is currently being edited is the only time-critical part, everything else can be done asynchronously, later.</p>
+</li>
+</ul>
+<p>This post gives an overview of some specific fruitful combinations of the two ideas:</p>
+<p><a href="https://rust-analyzer.github.io/blog/2020/07/20/three-architectures-for-responsive-ide.html">https://rust-analyzer.github.io/blog/2020/07/20/three-architectures-for-responsive-ide.html</a></p>
+<p>How can we apply the ideas to Zig?
+Let&rsquo;s use this as our running example:</p>
+
+<figure class="code-block">
+
+
+<pre><code>fn guinea_pig(comptime T: type, foo: Foo) void {</code>
+<code>    foo.&lt;complete here&gt;;</code>
+<code></code>
+<code>    helper(T).&lt;here&gt;;</code>
+<code></code>
+<code>    var t: T = undefined;</code>
+<code>    t.&lt;and here&gt;;</code>
+<code>}</code></pre>
+
+</figure>
+<p>There are two, separate interesting questions to ask here:</p>
+<ul>
+<li>
+what result do we even want here?
+</li>
+<li>
+how to achieve that given strict performance requirements?
+</li>
+</ul>
+</section>
+<section id="Just-Compile-Everything">
+
+    <h2>
+    <a href="#Just-Compile-Everything">Just Compile Everything </a>
+    </h2>
+<p>It&rsquo;s useful to start with a pedantically correct approach.
+Let&rsquo;s run our usual compilation (recursively monomorphising called functions starting from the <code>main</code>).
+The result would contain a bunch of different monomorphisations of <code>guinea_pig</code>, for different values of <code>T</code>.
+For each <em>specific</em> monomorphisation it&rsquo;s now clear what is the correct answer.
+For the unspecialized case as written in the source code, the IDE can now show something reasonable by combining partial results from each monomorphisation.</p>
+<p>There are several issues with this approach.</p>
+<p><em>First</em>, collecting the <em>full</em> set of monomorphisations is not well-defined in the presence of conditional compilation.
+Even if you run the &ldquo;full&rdquo; compilation starting from main, today compiler assumes some particular environment (eg, Windows or Linux), which doesn&rsquo;t give you a full picture.
+There&rsquo;s a fascinating issue about multibuilds &mdash; making the compiler process all combinations of conditional compilation flags at the same time: <a href="https://github.com/ziglang/zig/issues/3028">zig#3028</a>.
+With my IDE writer hat on, I really hope it gets in, as it will move IDE support from inherently heuristic territory, to something where, in principle, there&rsquo;s a correct result (even if might not be particularly easy to compute).</p>
+<p>The <em>second</em> problem is that this probably is going to be much too slow.
+If you think about IDE support for the first time, a very tantalizing idea is to try to lean just into incremental compilation.
+Specifically, you can imagine a compiler that maintains fully type-checked and resolved view of the code at all times.
+If a user edits something, the compiler just incrementally changes what needs to be changed.
+So the trick for IDE-grade interactive performance is just to implement sufficiently advanced incremental compilation.</p>
+<p>The problem with sufficiently incremental compiler is that even the perfect incrementality, which does the minimal required amount of work, will be slow in a non-insignificant amount of cases.
+The nature of code is that a small change to the source in a single place might lead to a large change to resolved types all over the project.
+For examples, changing the name of some popular type invalidates all the code that uses this type.
+That&rsquo;s the fundamental reason why IDE try hard to maintain an ability to <em>not</em> analyze everything.</p>
+<p>On the other hand, at the end of the day you&rsquo;ll have to do this work at least by the time you run the tests.
+And Zig&rsquo;s compiler is written from the ground up to be very incremental and very fast, so perhaps this will be good enough?
+My current gut feeling is that the answer is no &mdash; even if you <em>can</em> re-analyze everything in, say, 100ms, that&rsquo;ll still require burning the battery for essentially useless work.
+Usually, there&rsquo;s a lot more atomic small edits for a single test run.</p>
+<p>The <em>third</em> problem with the approach of collection all monomorphisations is that it simply does not work if the function isn&rsquo;t actually called, yet.
+Which is common in incomplete code that is being written, exactly the use-case where the IDE is most useful!</p>
+</section>
+<section id="Compile-Only-What-We-Need">
+
+    <h2>
+    <a href="#Compile-Only-What-We-Need">Compile Only What We Need </a>
+    </h2>
+<p>Thinking about the &ldquo;full&rdquo; approach more, it feels like it could be, at least in theory, optimized somewhat.
+Recall that in this approach we have a graph of function instantiations, which starts at the root (<code>main</code>), and contains various monomorphisations of <code>guinea_pig</code> on paths reachable from the root.</p>
+<p>It is clear we actually don&rsquo;t need the full graph to answer queries about instantiations of <code>guinea_pig</code>.
+For example, if we have something like</p>
+
+<figure class="code-block">
+
+
+<pre><code>fn helper() i32 {</code>
+<code>    ...</code>
+<code>}</code></pre>
+
+</figure>
+<p>and the <code>helper</code> does not (transitively) call <code>guinea_pig</code>, we can avoid looking into its body, as the signature is enough to analyze everything else.</p>
+<p>More precisely, given the graph of monomorphisations, we can select minimal subgraph which includes all paths from <code>main</code> to <code>guinea_pig</code> instantiations, as well as all the functions whose bodies we need to process to understand their signatures.
+My intuition is that the size of that subgraph is going to be much smaller than the whole thing, and, in principle, an algorithm which would analyze only that subgraph should be speedy enough in practice.</p>
+<p>The problem though is that, as far as I know, it&rsquo;s not possible to understand what belongs to the subgraph without analysing the whole thing!
+In particular, using compile-time reflection our <code>guinea_pig</code> can be called through something like <code>comptime "guinea" ++ "_pig"</code>.
+It&rsquo;s impossible to infer the call graph just from Zir.</p>
+<p>And of course this does not help the case where the function isn&rsquo;t called at all.</p>
+</section>
+<section id="Abstract-Comptime-Interpretation">
+
+    <h2>
+    <a href="#Abstract-Comptime-Interpretation">Abstract Comptime Interpretation </a>
+    </h2>
+<p>It is possible to approach</p>
+
+<figure class="code-block">
+
+
+<pre><code>fn guinea_pig(comptime T: type, foo: Foo) void {</code>
+<code>    foo.&lt;complete here&gt;;</code>
+<code></code>
+<code>    helper(T).&lt;here&gt;;</code>
+<code></code>
+<code>    var t: T = undefined;</code>
+<code>    t.&lt;and here&gt;;</code>
+<code>}</code></pre>
+
+</figure>
+<p>from a different direction.
+What if we just treat this function as the root of our graph?
+We can&rsquo;d do that exactly, because it has some comptime parameters.
+But we <em>can</em> say that we have some opaque values for the parameters: <code>T = opaquevalue</code>.
+Of course, we won&rsquo;t be able to fully evaluate everything and things like <code>if (T == int)</code> would probably need to propagate opaqueness.
+At the same time, something like the result of <code>BoundedArray(opaque)</code> would still be pretty useful for an IDE.</p>
+<p>I am wondering if there&rsquo;s even perhaps some compilation-time savings in this approach?
+My understanding (which might be very wrong!) is that if a generic function contains something like <code>90 + 2</code>, this expression would be comptime-evaluated anew for every instantiation.
+In theory, what we could do is to partially evaluate this function substituting opaque values for comptime parameters, and then, for any specific instantiation, we can use the result of this partial evaluation as a template.
+Not sure what that would mean precisely though: it definitely would be more complicated than just substituting <code>T</code>s in the result.</p>
+</section>
+<section id="What-is-to-Be-Done">
+
+    <h2>
+    <a href="#What-is-to-Be-Done">What is to Be Done? </a>
+    </h2>
+<p>Ast and Zir infra is good.
+It is per-file, so it naturally just works in an IDE.</p>
+<p><a href="https://github.com/ziglang/zig/issues/3028">Multibuilds</a> are important.
+I am somewhat skeptical that they&rsquo;ll actually fly, and it&rsquo;s not a complete game over if they don&rsquo;t
+(Rust has the same problem with conditional compilation, and it does create fundamental problems for both the users and authors of IDEs, but the end result is still pretty useful).
+Still, if Zig does ship multibuilds, that&rsquo;d be awesome.</p>
+<p>Given the unused function problem, I think it&rsquo;s impossible to avoid at least some amount of abstract interpretation, so <code>Sema</code> has to learn to deal with opaque values.</p>
+<p>With abstract interpretation machinery in place, it can be used as a first, responsive layer of IDE support.</p>
+<p>Computing the full set of monomoprisations in background can be used to augment these limited synchronous features with precise results asynchronously.
+Though, this might be tough to express in existing editor UIs.
+Eg, the goto definition result is now an asynchronous stream of values.</p>
+<p>Discussion on <a href="https://old.reddit.com/r/Zig/comments/10ysssh/blog_post_how_a_zig_ide_could_work/">/r/zig</a>.</p>
+</section>
+]]></content>
+</entry>
+
+<entry>
+<title type="text">Rust's Ugly Syntax</title>
+<link href="https://matklad.github.io/2023/01/26/rusts-ugly-syntax.html" rel="alternate" type="text/html" title="Self Modifying Code" />
+<published>2023-01-26T00:00:00+00:00</published>
+<updated>2023-01-26T00:00:00+00:00</updated>
+<id>https://matklad.github.io/2023/01/26/rusts-ugly-syntax</id>
+<author><name>Alex Kladov</name></author>
+<summary type="html"><![CDATA[People complain about Rust syntax.
+I think that most of the time when people think they have an issue with Rust's syntax, they actually object to Rust's semantics.
+In this slightly whimsical post, I'll try to disentangle the two.]]></summary>
+<content type="html" xml:base="https://matklad.github.io/2023/01/26/rusts-ugly-syntax.html"><![CDATA[
+    <h1>
+    <a href="#Rust-s-Ugly-Syntax">Rust&rsquo;s Ugly Syntax <time datetime="2023-01-26">Jan 26, 2023</time></a>
+    </h1>
+<p>People complain about Rust syntax.
+I think that most of the time when people think they have an issue with Rust&rsquo;s syntax, they actually object to Rust&rsquo;s semantics.
+In this slightly whimsical post, I&rsquo;ll try to disentangle the two.</p>
+<p>Let&rsquo;s start with an example of an ugly Rust syntax:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">read</span>&lt;P: <span class="hl-built_in">AsRef</span>&lt;Path&gt;&gt;(path: P) <span class="hl-punctuation">-&gt;</span> io::<span class="hl-type">Result</span>&lt;<span class="hl-type">Vec</span>&lt;<span class="hl-type">u8</span>&gt;&gt; {</code>
+<code>  <span class="hl-keyword">fn</span> <span class="hl-title function_">inner</span>(path: &amp;Path) <span class="hl-punctuation">-&gt;</span> io::<span class="hl-type">Result</span>&lt;<span class="hl-type">Vec</span>&lt;<span class="hl-type">u8</span>&gt;&gt; {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">file</span> = File::<span class="hl-title function_ invoke__">open</span>(path)?;</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">bytes</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>    file.<span class="hl-title function_ invoke__">read_to_end</span>(&amp;<span class="hl-keyword">mut</span> bytes)?;</code>
+<code>    <span class="hl-title function_ invoke__">Ok</span>(bytes)</code>
+<code>  }</code>
+<code>  <span class="hl-title function_ invoke__">inner</span>(path.<span class="hl-title function_ invoke__">as_ref</span>())</code>
+<code>}</code></pre>
+
+</figure>
+<p>This function reads contents of a given binary file.
+This is lifted straight from the standard library, so it is very much not a strawman example.
+And, at least to me, it&rsquo;s definitely not a pretty one!</p>
+<p>Let&rsquo;s try to imagine what this same function would look like if Rust had a better syntax.
+Any resemblance to real programming languages, living or dead, is purely coincidental!</p>
+<p>Let&rsquo;s start with Rs++:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">template</span>&lt;std::HasConstReference&lt;std::Path&gt; P&gt;</code>
+<code>std::io::outcome&lt;std::vector&lt;<span class="hl-type">uint8_t</span>&gt;&gt;</code>
+<code>std::<span class="hl-built_in">read</span>(P path) {</code>
+<code>    <span class="hl-keyword">return</span> <span class="hl-built_in">read_</span>(path.<span class="hl-built_in">as_reference</span>());</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-type">static</span></code>
+<code>std::io::outcome&lt;std::vector&lt;<span class="hl-type">uint8_t</span>&gt;&gt;</code>
+<code><span class="hl-built_in">read_</span>(&amp;<span class="hl-keyword">auto</span> <span class="hl-type">const</span> std::Path path) {</code>
+<code>    <span class="hl-keyword">auto</span> file = <span class="hl-keyword">try</span> std::File::<span class="hl-built_in">open</span>(path);</code>
+<code>    std::vector bytes;</code>
+<code>    <span class="hl-keyword">try</span> file.<span class="hl-built_in">read_to_end</span>(&amp;bytes);</code>
+<code>    <span class="hl-keyword">return</span> <span class="hl-built_in">okey</span>(bytes);</code>
+<code>}</code></pre>
+
+</figure>
+<p>A Rhodes variant:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">public</span> io.Result&lt;ArrayList&lt;Byte&gt;&gt; read&lt;P <span class="hl-keyword">extends</span> <span class="hl-title class_">ReferencingFinal</span>&lt;Path&gt;&gt;(</code>
+<code>        P path) {</code>
+<code>    <span class="hl-keyword">return</span> myRead(path.get_final_reference());</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">private</span> io.Result&lt;ArrayList&lt;Byte&gt;&gt; <span class="hl-title function_">myRead</span><span class="hl-params">(</span></code>
+<code><span class="hl-params">        <span class="hl-keyword">final</span> reference lifetime <span class="hl-keyword">var</span> Path path)</span> {</code>
+<code>    <span class="hl-type">var</span> <span class="hl-variable">file</span> <span class="hl-operator">=</span> <span class="hl-keyword">try</span> File.open(path);</code>
+<code>    ArrayList&lt;Byte&gt; bytes = ArrayList.new();</code>
+<code>    <span class="hl-keyword">try</span> file.readToEnd(borrow bytes);</code>
+<code>    <span class="hl-keyword">return</span> Success(bytes);</code>
+<code>}</code></pre>
+
+</figure>
+<p>Typical RhodesScript:</p>
+
+<figure class="code-block">
+
+
+<pre><code>public <span class="hl-keyword">function</span> read&lt;P <span class="hl-keyword">extends</span> <span class="hl-title class_">IncludingRef</span>&lt;<span class="hl-title class_">Path</span>&gt;&gt;(</code>
+<code>    <span class="hl-attr">path</span>: P,</code>
+<code>): io.<span class="hl-property">Result</span>&lt;<span class="hl-title class_">Array</span>&lt;byte&gt;&gt; {</code>
+<code>    <span class="hl-keyword">return</span> <span class="hl-title function_">myRead</span>(path.<span class="hl-title function_">included_ref</span>());</code>
+<code>}</code>
+<code></code>
+<code>private <span class="hl-keyword">function</span> <span class="hl-title function_">myRead</span>(<span class="hl-params"></span></code>
+<code><span class="hl-params">    path: &amp;<span class="hl-keyword">const</span> Path,</span></code>
+<code><span class="hl-params"></span>): io.<span class="hl-property">Result</span>&lt;<span class="hl-title class_">Array</span>&lt;byte&gt;&gt; {</code>
+<code>    <span class="hl-keyword">let</span> file = <span class="hl-keyword">try</span> <span class="hl-title class_">File</span>.<span class="hl-title function_">open</span>(path);</code>
+<code>    <span class="hl-title class_">Array</span>&lt;byte&gt; bytes = <span class="hl-title class_">Array</span>.<span class="hl-title function_">new</span>()</code>
+<code>    <span class="hl-keyword">try</span> file.<span class="hl-title function_">readToEnd</span>(&amp;bytes)</code>
+<code>    <span class="hl-keyword">return</span> <span class="hl-title class_">Ok</span>(bytes);</code>
+<code>}</code></pre>
+
+</figure>
+<p>Rattlesnake:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">def</span> <span class="hl-title function_">read</span>[P: Refing[Path]](path: P): io.Result[<span class="hl-type">List</span>[byte]]:</code>
+<code>    <span class="hl-keyword">def</span> <span class="hl-title function_">inner</span>(<span class="hl-params">path: @Path</span>): io.Result[<span class="hl-type">List</span>[byte]]:</code>
+<code>        file := <span class="hl-keyword">try</span> File.<span class="hl-built_in">open</span>(path)</code>
+<code>        <span class="hl-built_in">bytes</span> := <span class="hl-type">List</span>.new()</code>
+<code>        <span class="hl-keyword">try</span> file.read_to_end(@: <span class="hl-built_in">bytes</span>)</code>
+<code>        <span class="hl-keyword">return</span> Ok(<span class="hl-built_in">bytes</span>)</code>
+<code>    <span class="hl-keyword">return</span> inner(path.ref)</code></pre>
+
+</figure>
+<p>And, to conclude, CrabML:</p>
+
+<figure class="code-block">
+
+
+<pre><code>read :: 'p  ref_of =&gt; 'p -&gt; u8 vec io.either.t</code>
+<code>let read p =</code>
+<code>  let</code>
+<code>    inner :: &amp;path -&gt; u8 vec.t io.either.t</code>
+<code>    inner p =</code>
+<code>      let mut file = try (File.open p) in</code>
+<code>      let mut bytes = vec.new () in</code>
+<code>      try (file.read_to_end (&amp;mut bytes)); Right bytes</code>
+<code>  in</code>
+<code>    ref_op p |&gt; inner</code>
+<code>;;</code></pre>
+
+</figure>
+<p>As a slightly more serious and useful exercise, let&rsquo;s do the opposite &mdash; keep the Rust syntax, but try to simplify semantics until the end result looks presentable.</p>
+<p>Here&rsquo;s our starting point:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">read</span>&lt;P: <span class="hl-built_in">AsRef</span>&lt;Path&gt;&gt;(path: P) <span class="hl-punctuation">-&gt;</span> io::<span class="hl-type">Result</span>&lt;<span class="hl-type">Vec</span>&lt;<span class="hl-type">u8</span>&gt;&gt; {</code>
+<code>  <span class="hl-keyword">fn</span> <span class="hl-title function_">inner</span>(path: &amp;Path) <span class="hl-punctuation">-&gt;</span> io::<span class="hl-type">Result</span>&lt;<span class="hl-type">Vec</span>&lt;<span class="hl-type">u8</span>&gt;&gt; {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">file</span> = File::<span class="hl-title function_ invoke__">open</span>(path)?;</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">bytes</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>    file.<span class="hl-title function_ invoke__">read_to_end</span>(&amp;<span class="hl-keyword">mut</span> bytes)?;</code>
+<code>    <span class="hl-title function_ invoke__">Ok</span>(bytes)</code>
+<code>  }</code>
+<code>  <span class="hl-title function_ invoke__">inner</span>(path.<span class="hl-title function_ invoke__">as_ref</span>())</code>
+<code>}</code></pre>
+
+</figure>
+<p>The biggest source of noise here is the nested function.
+The motivation for it is somewhat esoteric.
+The outer function is generic, while the inner function isn&rsquo;t.
+With the current compilation model, that means that the outer function is compiled together with the user&rsquo;s code, gets inlined and is optimized down to nothing.
+In contrast, the inner function is compiled when the std itself is being compiled, saving time when compiling user&rsquo;s code.
+One way to simplify this (losing a bit of performance) is to say that generic functions are always separately compiled, but accept an extra runtime argument under the hood which describes the physical dimension of input parameters.</p>
+<p>With that, we get</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">read</span>&lt;P: <span class="hl-built_in">AsRef</span>&lt;Path&gt;&gt;(path: P) <span class="hl-punctuation">-&gt;</span> io::<span class="hl-type">Result</span>&lt;<span class="hl-type">Vec</span>&lt;<span class="hl-type">u8</span>&gt;&gt; {</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">file</span> = File::<span class="hl-title function_ invoke__">open</span>(path.<span class="hl-title function_ invoke__">as_ref</span>())?;</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">bytes</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>  file.<span class="hl-title function_ invoke__">read_to_end</span>(&amp;<span class="hl-keyword">mut</span> bytes)?;</code>
+<code>  <span class="hl-title function_ invoke__">Ok</span>(bytes)</code>
+<code>}</code></pre>
+
+</figure>
+<p>The next noisy element is the <code>&lt;P: AsRef&lt;Path&gt;&gt;</code> constraint.
+It is needed because Rust loves exposing physical layout of bytes in memory as an interface, specifically for cases where that brings performance.
+In particular, the meaning of <code>Path</code> is not that it is some abstract representation of a file path, but that it is just literally a bunch of contiguous bytes in memory.
+So we need <code>AsRef</code> to make this work with <em>any</em> abstraction which is capable of representing such a slice of bytes.
+But if we don&rsquo;t care about performance, we can require that all interfaces are fairly abstract and mediated via virtual function calls, rather than direct memory access.
+Then we won&rsquo;t need <code>AsRef</code>at all:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">read</span>(path: &amp;Path) <span class="hl-punctuation">-&gt;</span> io::<span class="hl-type">Result</span>&lt;<span class="hl-type">Vec</span>&lt;<span class="hl-type">u8</span>&gt;&gt; {</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">file</span> = File::<span class="hl-title function_ invoke__">open</span>(path)?;</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">bytes</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>  file.<span class="hl-title function_ invoke__">read_to_end</span>(&amp;<span class="hl-keyword">mut</span> bytes)?;</code>
+<code>  <span class="hl-title function_ invoke__">Ok</span>(bytes)</code>
+<code>}</code></pre>
+
+</figure>
+<p>Having done this, we can actually get rid of <code>Vec&lt;u8&gt;</code> as well &mdash; we can no longer use generics to express efficient growable array of bytes in the language itself.
+We&rsquo;d have to use some opaque <code>Bytes</code> type provided by the runtime:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">read</span>(path: &amp;Path) <span class="hl-punctuation">-&gt;</span> io::<span class="hl-type">Result</span>&lt;Bytes&gt; {</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">file</span> = File::<span class="hl-title function_ invoke__">open</span>(path)?;</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">bytes</span> = Bytes::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>  file.<span class="hl-title function_ invoke__">read_to_end</span>(&amp;<span class="hl-keyword">mut</span> bytes)?;</code>
+<code>  <span class="hl-title function_ invoke__">Ok</span>(bytes)</code>
+<code>}</code></pre>
+
+</figure>
+<p>Technically, we are still carrying ownership and borrowing system with us, but, without direct control over memory layout of types, it no longer brings massive performance benefits.
+It still helps to avoid GC, prevent iterator invalidation, and statically check that non-thread-safe code isn&rsquo;t actually used across threads.
+Still, we can easily get rid of those &amp;-pretzels if we just switch to GC.
+We don&rsquo;t even need to worry about concurrency much &mdash; as our objects are separately allocated and always behind a pointer, we can hand-wave data races away by noticing that operations with pointer-sized things are atomic on x86 anyway.</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">read</span>(path: Path) <span class="hl-punctuation">-&gt;</span> io::<span class="hl-type">Result</span>&lt;Bytes&gt; {</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">file</span> = File::<span class="hl-title function_ invoke__">open</span>(path)?;</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">bytes</span> = Bytes::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>  file.<span class="hl-title function_ invoke__">read_to_end</span>(bytes)?;</code>
+<code>  <span class="hl-title function_ invoke__">Ok</span>(bytes)</code>
+<code>}</code></pre>
+
+</figure>
+<p>Finally, we are being overly pedantic with error handling here &mdash; not only we mention a possibility of failure in the return type, we even use <code>?</code> to highlight any specific expression that might fail.
+It would be much simpler to not think about error handling at all, and let some top-level<br>
+<code>try { } catch (...) { /* intentionally empty */ }</code><br>
+handler deal with it:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">read</span>(path: Path) <span class="hl-punctuation">-&gt;</span> Bytes {</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">file</span> = File::<span class="hl-title function_ invoke__">open</span>(path);</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">bytes</span> = Bytes::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>  file.<span class="hl-title function_ invoke__">read_to_end</span>(bytes);</code>
+<code>  bytes</code>
+<code>}</code></pre>
+
+</figure>
+<p><strong><strong>Much</strong></strong> better now!</p>
+]]></content>
+</entry>
+
+<entry>
+<title type="text">Next Rust Compiler</title>
+<link href="https://matklad.github.io/2023/01/25/next-rust-compiler.html" rel="alternate" type="text/html" title="Self Modifying Code" />
+<published>2023-01-25T00:00:00+00:00</published>
+<updated>2023-01-25T00:00:00+00:00</updated>
+<id>https://matklad.github.io/2023/01/25/next-rust-compiler</id>
+<author><name>Alex Kladov</name></author>
+<summary type="html"><![CDATA[In Rust in 2023, @nrc floated an idea of a Rust compiler rewrite.
+As my hobby is writing Rust compiler frontends (1, 2), I have some (but not very many) thoughts here!
+The post consists of two parts, covering organizational and technical aspects.]]></summary>
+<content type="html" xml:base="https://matklad.github.io/2023/01/25/next-rust-compiler.html"><![CDATA[
+    <h1>
+    <a href="#Next-Rust-Compiler">Next Rust Compiler <time datetime="2023-01-25">Jan 25, 2023</time></a>
+    </h1>
+<p>In <a href="https://www.ncameron.org/blog/rust-in-2023/">Rust in 2023</a>, <a href="http://github.com/nrc">@nrc</a> floated an idea of a Rust compiler rewrite.
+As my hobby is writing Rust compiler frontends (<a href="https://github.com/intellij-rust/intellij-rust">1</a>, <a href="https://github.com/rust-lang/rust-analyzer">2</a>), I have some (but not very many) thoughts here!
+The post consists of two parts, covering organizational and technical aspects.</p>
+<section id="Organization">
+
+    <h2>
+    <a href="#Organization">Organization </a>
+    </h2>
+<p>Writing a production-grade compiler is not a small endeavor.
+The questions of who writes the code, who pays the people writing the code, and what&rsquo;s the economic incentive to fund the work in the first place are quite important.</p>
+<p>My naive guesstimate is that Rust is currently at that stage of its life where it&rsquo;s clear that the language won&rsquo;t die, and would be deployed quite widely, but where, at the same time, the said deployment didn&rsquo;t quite happen to the full extent yet.
+From within the Rust community, it seems like Rust is everywhere.
+My guess is that from the outside it looks like there&rsquo;s Rust in at least some places.</p>
+<p>In other words, it&rsquo;s high time to invest substantially into Rust ecosystem, as the risk that the investment sinks completely is relatively low, but the expected growth is still quite high.
+This makes me think that a next-gen rust compiler isn&rsquo;t too unlikely: I feel that rustc is stuck in a local optimum, and that, with some boldness, it is possible to deliver something more awesome.</p>
+</section>
+<section id="Technicalities">
+
+    <h2>
+    <a href="#Technicalities">Technicalities </a>
+    </h2>
+<p>Here&rsquo;s what I think an awesome rust compiler would do:</p>
+<dl>
+<dt>rust-native compilation model</dt>
+<dd>
+<p>Like C++, Rust (ab)uses the C compilation model &mdash; compilation units are separately compiled into object files, which are then linked into a single executable by the linker.
+This model is at odds with how the language work.
+In particular, compiling a generic function isn&rsquo;t actually possible until you know specific type parameters at the call-site.
+Rust and C++ hack around that by compiling a separate copy for every call-site (C++ even re-type-checks every call-site), and deduplicating instantiations during the link step.
+This creates a lot of wasted work, which is only there because we try to follow &ldquo;compile to object files then link&rdquo; model of operation.
+It would be significantly more efficient to merge compiler and linker, such that only the minimal amount of code is compiled, compiled code is fully aware about surrounding context and can be inlined across crates, and where the compilation makes the optimal use of all available CPU and RAM.</p>
+</dd>
+<dt>intra-crate parallelism</dt>
+<dd>
+<p>C compilation model is not stupid &mdash; it is the way it is to enable separate compilation.
+Back in the day, compiling whole programs was simply not possible due to the limitations of the hardware.
+Rather, a program had to be compiled in separate parts, and then the parts linked together into the final artifact.
+With bigger computers today, we don&rsquo;t think about separate compilation as much.
+It is still important though &mdash; not only our computers are more powerful, our programs are much bigger.
+Moreover, computing power comes not from increasing clock speeds, but from a larger number of cores.</p>
+<p>Rust&rsquo;s DAG of anonymous crates with well-defined declaration-site checked interfaces is actually quite great for compiling Rust in parallel (especially if we get rid of completely accidental interactions between monomorphization and existing linkers).
+However, even a single crate can be quite large, and is compiled sequentially.
+For example, in the <a href="https://quick-lint-js.com/blog/cpp-vs-rust-build-times">recent compile time benchmark</a>, a significant chunk of time was spent compiling just this <a href="https://github.com/quick-lint/cpp-vs-rust/blob/master/rust/libs/fe/tests/test_lex.rs">file</a> with a bunch of functions.
+Intuitively, as all these functions are completely independent, compiler should be able to process them in parallel.
+In reality, Rust doesn&rsquo;t actually make that as easy as it seems, but it definitely is possible to do better than the current compiler.</p>
+</dd>
+<dt>open-world compiling; stable MIR</dt>
+<dd>
+<p>Today, Rust tooling is a black-box &ndash; you feed it with source text and an executable binary for the output.
+This solves the problem of producing executable binaries quite well!</p>
+<p>However, for more complex projects you want to have more direct relationship with the code.
+You want tools other than compiler to understand the meaning of the code, and to act on it.
+For example automated large scale refactors and code analysis, project-specific linting rules or formal proofs of correctness all could benefit from having an access to semantically rich model of the language.</p>
+<p>Providing such semantic  model, where AST is annotated with resolved names, inferred types, and bodies are converted to a simple and precise IR, is a huge ask.
+Not because it is technically hard to implement, but because this adds an entirely new stable API to the language.
+Nonetheless, such an API would unlock quite a few use cases, so the tradeoff is worth it.</p>
+</dd>
+<dt>hermetic deterministic compilation</dt>
+<dd>
+<p>It is increasingly common to want reproducible builds.
+With NixOS and Guix, whole Linux distros are built in a deterministic fashion.
+It is possible to achieve reproducibility by carefully freezing whatever mess you are currently in, the docker way.
+But a better approach is to start with inherently pure and hermetic components, and assemble them into a larger system.</p>
+<p>Today, Rust has some amount of determinism in its compilation, but it is achieved by plugging loopholes, rather than by not admitting impurities into the system in the first place.
+For example, the <a href="https://github.com/rust-lang/rust/blob/027c8507b4265dcf285b0b503e2a49214b929f7b/compiler/rustc_builtin_macros/src/env.rs#L81"><code>env!</code></a> macro literally looks up a value in compiler&rsquo;s environment, without any attempt at restricting or at least enumerating available inputs.
+Procedural macros are an unrestricted RCE.</p>
+<p>It feels like we can do better, and that we should do better, if the goal is still <a href="http://venge.net/graydon/talks/intro-talk-2.pdf">less mess</a>.</p>
+</dd>
+<dt>lazy and error-resilient compilation</dt>
+<dd>
+<p>For the task of providing immediate feedback right in the editor when the user types the code, compilation &ldquo;pipeline&rdquo; needs to be changed significantly.
+It should be lazy (so that only the minimal amount of code is inspected and re-analyzed on typing) and resilient and robust to errors (IDE job mostly ends when the code is error free).
+<a href="https://rust-analyzer.github.io">rust-analyzer</a> shows one possible way to do that, with the only drawback of being a completely separate tool for IDE, and only IDE.
+There&rsquo;s no technical limitation why the full compiler can&rsquo;t be like that, just the organizational limitation of it being very hard to re-architecture existing entrenched code, perfected for its local optimum.</p>
+</dd>
+<dt><code>cargo install rust-compiler</code></dt>
+<dd>
+<p>Finally, for the benefit of compiler writers themselves, a compiler should be a simple rust crate, which builds with stable Rust and is otherwise a very boring text processing utility.
+Again, rust-analyzer shows that it is possible, and that the benefits for development velocity are enormous.
+I am glad to see <a href="https://jyn.dev/2023/01/12/Bootstrapping-Rust-in-2023.html">a recent movement</a> to making the build process for the compiler simpler!</p>
+</dd>
+</dl>
+<p>Discussion on <a href="https://old.reddit.com/r/rust/comments/10ld2vn/blog_post_next_rust_compiler/">/r/rust</a></p>
+</section>
+]]></content>
+</entry>
+
+<entry>
+<title type="text">On Random Numbers</title>
+<link href="https://matklad.github.io/2023/01/04/on-random-numbers.html" rel="alternate" type="text/html" title="Self Modifying Code" />
+<published>2023-01-04T00:00:00+00:00</published>
+<updated>2023-01-04T00:00:00+00:00</updated>
+<id>https://matklad.github.io/2023/01/04/on-random-numbers</id>
+<author><name>Alex Kladov</name></author>
+<summary type="html"><![CDATA[This is a short post which decomposes random numbers topic into principal components and maps them to Rust ecosystem.]]></summary>
+<content type="html" xml:base="https://matklad.github.io/2023/01/04/on-random-numbers.html"><![CDATA[
+    <h1>
+    <a href="#On-Random-Numbers">On Random Numbers <time datetime="2023-01-04">Jan 4, 2023</time></a>
+    </h1>
+<p>This is a short post which decomposes &ldquo;random numbers&rdquo; topic into principal components and maps them to Rust ecosystem.</p>
+<section id="True-Randomness">
+
+    <h2>
+    <a href="#True-Randomness">True Randomness </a>
+    </h2>
+<p>For cryptographic purposes (eg, generating a key pair for public key cryptography), you want to use real random numbers, derived from genuinely stochastic physical signals
+(hardware random number generator, keyboard input, etc).
+The shape of the API here is:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">fill_buffer_with_random_data</span>(buf: &amp;<span class="hl-keyword">mut</span> [<span class="hl-type">u8</span>])</code></pre>
+
+</figure>
+<p>As this fundamentally requires talking to some physical devices, this task is handled by the operating system.
+Different operating systems provide different APIs, covering which is beyond the scope of this article (and my own knowledge).</p>
+<p>In Rust, <a href="https://lib.rs/getrandom"><code>getrandom</code></a> crate provides a cross-platform wrapper for this functionality.</p>
+<p>It is a major deficiency of Rust standard library that this functionality is not exposed there.
+Getting cryptographically secure random data is in the same class of OS services as getting the current time or reading standard input.
+Arguably, it&rsquo;s even more important, as most applications for this functionality are security-critical.</p>
+</section>
+<section id="Pseudorandom-Number-Generator">
+
+    <h2>
+    <a href="#Pseudorandom-Number-Generator">Pseudorandom Number Generator </a>
+    </h2>
+<p>For various non-cryptographic randomized algorithms, you want to start with a fixed, deterministic <code>seed</code>, and generate a stream of numbers, statistically indistinguishable from random.
+The shape of the API here is:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">random_u32</span>(state: &amp;<span class="hl-keyword">mut</span> <span class="hl-type">f64</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">u32</span></code></pre>
+
+</figure>
+<p>There are many different algorithms to do that.
+<a href="https://lib.rs/fastrand"><code>fastrand</code></a> crate implements something sufficiently close to the state of the art.</p>
+<p>Alternatively, a good-enough PRNG can be implemented in 9 lines of code:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">random_numbers</span>(seed: <span class="hl-type">u32</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-keyword">impl</span> <span class="hl-title class_">Iterator</span>&lt;Item = <span class="hl-type">u32</span>&gt; {</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">random</span> = seed;</code>
+<code>  std::iter::<span class="hl-title function_ invoke__">repeat_with</span>(<span class="hl-keyword">move</span> || {</code>
+<code>    random ^= random &lt;&lt; <span class="hl-number">13</span>;</code>
+<code>    random ^= random &gt;&gt; <span class="hl-number">17</span>;</code>
+<code>    random ^= random &lt;&lt; <span class="hl-number">5</span>;</code>
+<code>    random</code>
+<code>  })</code>
+<code>}</code></pre>
+
+</figure>
+<p>This code was lifted from Rust&rsquo;s standard library (<a href="https://github.com/rust-lang/rust/blob/1.55.0/library/core/src/slice/sort.rs#L559-L573">source</a>).</p>
+<p>The best way to seed a PRNG is usually by using a fixed constant.
+If you absolutely need <em>some</em> amount of randomness in the seed, you can use the following hack:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">random_seed</span>() <span class="hl-punctuation">-&gt;</span> <span class="hl-type">u64</span> {</code>
+<code>  std::hash::Hasher::<span class="hl-title function_ invoke__">finish</span>(&amp;std::hash::BuildHasher::<span class="hl-title function_ invoke__">build_hasher</span>(</code>
+<code>    &amp;std::collections::hash_map::RandomState::<span class="hl-title function_ invoke__">new</span>(),</code>
+<code>  ))</code>
+<code>}</code></pre>
+
+</figure>
+<p>In Rust, hash maps include some amount of randomization to avoid exploitable pathological behavior due to collisions.
+The above snippet extracts that randomness.</p>
+</section>
+<section id="Non-Uniformly-Distributed-Random-Numbers-Uniformly-Distributed-Random-Non-Numbers">
+
+    <h2>
+    <a href="#Non-Uniformly-Distributed-Random-Numbers-Uniformly-Distributed-Random-Non-Numbers">Non-Uniformly Distributed Random Numbers, Uniformly Distributed Random Non-Numbers. </a>
+    </h2>
+<p>Good PRNG gives you a sequence of <code>u32</code> numbers where each number is as likely as every other one.
+You can convert that to a number from 0 to 10 with <code>random_u32() % 10</code>.
+This will be good enough for most purposes, but will fail rigorous statistical tests.
+Because 2<sup>32</sup> isn&rsquo;t evenly divisible by 10, 0 would be ever so slightly more frequent than <code>9</code>.
+There is an algorithm to do this correctly (if <code>random_u32()</code> is very large, and falls into the literal remainder after dividing 2<sup>32</sup> by 10, throw it away and try again).</p>
+<p>Sometimes you you want to use <code>random_u32()</code> to generate other kinds of random things, like a random point on a 3D sphere, or a random permutation.
+There are also algorithms for that.</p>
+<p>Sphere: generate random point in the unit cube; if it is also in the unit ball, project it onto the surface, otherwise throw it away and try again.</p>
+<p>Permutation: naive algorithm of selecting a random element to be the first, then selecting a random element among the rest to be the second, etc, works.</p>
+<p>There are libraries which provide collections of such algorithms.
+For example, <code>fastrand</code> includes most common ones, like generating numbers in range, generating floating point numbers or shuffling slices.</p>
+<p><code>rand</code> includes more esoteric cases line the aforementioned point on a sphere or a normal distribution.</p>
+</section>
+<section id="Ambient-Global-Source-Of-Random-Numbers">
+
+    <h2>
+    <a href="#Ambient-Global-Source-Of-Random-Numbers">Ambient Global Source Of Random Numbers </a>
+    </h2>
+<p>It is customary to expect existence of a global random number generator seeded for you.
+This is an anti-pattern &mdash; in the overwhelming majority of cases, passing a random number generator explicitly leads to better software.
+In particular, this is a requirement for deterministic tests.</p>
+<p>In any case, this functionality can be achieved by storing a state of PRNG in a thread local:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">use</span> std::cell::Cell;</code>
+<code></code>
+<code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">thread_local_random_u32</span>() <span class="hl-punctuation">-&gt;</span> <span class="hl-type">u32</span> {</code>
+<code>  thread_local! {</code>
+<code>      <span class="hl-keyword">static</span> STATE: Cell&lt;<span class="hl-type">u64</span>&gt; = Cell::<span class="hl-title function_ invoke__">new</span>(<span class="hl-title function_ invoke__">random_seed</span>())</code>
+<code>  }</code>
+<code>  STATE.<span class="hl-title function_ invoke__">with</span>(|cell| {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">state</span> = cell.<span class="hl-title function_ invoke__">get</span>();</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">result</span> = <span class="hl-title function_ invoke__">random_u32</span>(&amp;<span class="hl-keyword">mut</span> state);</code>
+<code>    cell.<span class="hl-title function_ invoke__">set</span>(state);</code>
+<code>    result</code>
+<code>  })</code>
+<code>}</code></pre>
+
+</figure>
+</section>
+<section id="rand">
+
+    <h2>
+    <a href="#rand">rand </a>
+    </h2>
+<p><a href="https://lib.rs/rand"><code>rand</code></a> is an umbrella crate which includes all of the above.
+<code>rand</code> also provides flexible trait-based &ldquo;plugin&rdquo; interface, allowing you to mix and match different combinations of PRNGs and algorithms.
+User interface of <code>rand</code> is formed primarily by extension traits.</p>
+</section>
+<section id="Kinds-Of-Randomness">
+
+    <h2>
+    <a href="#Kinds-Of-Randomness">Kinds Of Randomness </a>
+    </h2>
+<p>Circling back to the beginning of the post, it is very important to distinguish between the two use-cases:</p>
+<ul>
+<li>
+using unpredictable data for cryptography
+</li>
+<li>
+using statistically uniform random data for stochastic algorithms
+</li>
+</ul>
+<p>Although the two use-cases both have &ldquo;randomness&rdquo; in their name, they are disjoint, and underlying algorithms and APIs don&rsquo;t have anything in common.
+They are physically different: one is a syscall, another is a pure function mapping integers to integers.</p>
+</section>
+]]></content>
+</entry>
+
+<entry>
+<title type="text">Ray Tracer Construction Kit</title>
+<link href="https://matklad.github.io/2022/12/31/raytracer-construction-kit.html" rel="alternate" type="text/html" title="Self Modifying Code" />
+<published>2022-12-31T00:00:00+00:00</published>
+<updated>2022-12-31T00:00:00+00:00</updated>
+<id>https://matklad.github.io/2022/12/31/raytracer-construction-kit</id>
+<author><name>Alex Kladov</name></author>
+<summary type="html"><![CDATA[Ray or path tracing is an algorithm for getting a 2D picture out of a 3D virtual scene, by simulating a trajectory of a particle of light which hits the camera.
+It's one of the fundamental techniques of computer graphics, but that's not why it is the topic for today's blog post.
+Implementing a toy ray tracer is one of the best exercises for learning a particular programming language (and a great deal about software architecture in general as well), and that's the why? for this text.
+My goal here is to teach you to learn new programming languages better, by giving a particularly good exercise for that.]]></summary>
+<content type="html" xml:base="https://matklad.github.io/2022/12/31/raytracer-construction-kit.html"><![CDATA[
+    <h1>
+    <a href="#Ray-Tracer-Construction-Kit">Ray Tracer Construction Kit <time datetime="2022-12-31">Dec 31, 2022</time></a>
+    </h1>
+<p>Ray or path tracing is an algorithm for getting a 2D picture out of a 3D virtual scene, by simulating a trajectory of a particle of light which hits the camera.
+It&rsquo;s one of the fundamental techniques of computer graphics, but that&rsquo;s not why it is the topic for today&rsquo;s blog post.
+Implementing a toy ray tracer is one of the best exercises for learning a particular programming language (and a great deal about software architecture in general as well), and that&rsquo;s the &ldquo;why?&rdquo; for this text.
+My goal here is to teach you to learn new programming languages better, by giving a particularly good exercise for that.</p>
+<p>But first, some background</p>
+<section id="Background">
+
+    <h2>
+    <a href="#Background">Background </a>
+    </h2>
+<p>Learning a programming language consists of learning the theory (knowledge) and the set of tricks to actually make computer do things (skills).
+For me, the best way to learn skills is to practice them.
+Ray tracer is an exceptionally good practice dummy, because:</p>
+<ul>
+<li>
+It is a project of an appropriate scale: a couple of weekends.
+</li>
+<li>
+It is a project with a flexible scale &mdash; if you get carried away, you can sink <em>a lot</em> of weekends before you hit diminishing returns on effort.
+</li>
+<li>
+Ray tracer can make use of a lot of aspects of the language &mdash; modules, static and runtime polymorphism, parallelism, operator overloading, IO, string parsing, performance optimization, custom data structures.
+Really, I think the project doesn&rsquo;t touch only a couple of big things, namely networking and evented programming.
+</li>
+<li>
+It is a very visual and feedback-friendly project &mdash; a bug is not some constraint violation deep in the guts of the database, it&rsquo;s a picture upside-down!
+</li>
+</ul>
+<p>I want to stress once again that here I view ray tracer as a learning exercise.
+We aren&rsquo;t going to draw any beautiful photorealistic pictures here, we&rsquo;ll settle for ugly things with artifacts.</p>
+<p>Eg, this &ldquo;beauty&rdquo; is the <em>final</em> result of my last exercise:</p>
+
+<figure>
+
+<img alt="" src="https://user-images.githubusercontent.com/1711539/194287665-05583649-dcb0-4014-82b9-424f945e19a4.png">
+</figure>
+<p>And, to maximize learning, I think its better to do everything yourself from scratch.
+A crappy teapot which you did from the first principles is full to the brim with knowledge, while a beautiful landscape which you got by following step-by-step instructions is hollow.</p>
+<p>And that&rsquo;s the gist of the post: I&rsquo;ll try to teach you as little about ray tracing as possible, to give you just enough clues to get some pixels to the screen.
+To be more poetic, you&rsquo;ll draw the rest of the proverbial owl.</p>
+<p>This is in contrast to <a href="https://raytracing.github.io">Ray Tracing in One Weekend</a> which does a splendid job teaching ray tracing, but contains way to many spoilers if you want to learn software architecture (rather than graphics programming).
+In particular, it contains snippets of code.
+We won&rsquo;t see that here &mdash; as a corollary, all the code you&rsquo;ll write is fully your invention!</p>
+<p>Sadly, there&rsquo;s one caveat to the plan: as the fundamental task is tracing a ray as it gets reflected through the 3D scene, we&rsquo;ll need a hefty amount of math.
+Not an insurmountable amount &mdash; everything is going to be pretty visual and logical.
+But still, we&rsquo;ll need some of the more advanced stuff, such as vectors and cross product.</p>
+<p>If you are very comfortable with that, you can approach the math parts the same way as the programming parts &mdash; grab a pencil and a stack of paper and try to work out formulas yourself.
+If solving math puzzlers is not your cup of tea, feel <em>absolutely</em> free to just look up formulas online.
+<a href="https://avikdas.com/build-your-own-raytracer">https://avikdas.com/build-your-own-raytracer</a> is a great resource for that.
+If, however, linear algebra is your worst nightmare, you might want to look for a more step-by-step tutorial (or maybe pick a different problem altogether! Another good exercise is a small chat server, for example).</p>
+</section>
+<section id="Algorithm-Overview">
+
+    <h2>
+    <a href="#Algorithm-Overview">Algorithm Overview </a>
+    </h2>
+<p>So, what exactly is ray tracing?
+Imagine a 3D scene with different kinds of objects: an infinite plane, a sphere, a bunch of small triangles which resemble a teapot from afar.
+The scene is illuminated by some distant light source, and so objects cast shadows and reflect each other.
+We observe the scene from a particular view point.
+Roughly, a ray of light is emitted by a light source, bounces off scene objects and eventually, if it gets into our eye, we perceive a sensation of color, which is mixed from light&rsquo;s original color, as well the colors of all the objects the ray reflected from.</p>
+<p>Now, we are going to crudely simplify the picture.
+Rather than casting rays from the light source, we&rsquo;ll cast rays from the point of view.
+Whatever is intersected by the ray will be painted as a pixels in the resulting image.</p>
+<p>Let&rsquo;s do this step-by-step</p>
+</section>
+<section id="Images">
+
+    <h2>
+    <a href="#Images">Images </a>
+    </h2>
+<p>The ultimate result of our ray tracer is an image.
+A straightforward way to represent an image is to use a 2D grid of pixels, where each pixel is an &ldquo;red, green, blue&rdquo; triple where color values vary from 0 to 255.
+How do we display the image?
+One can reach out for graphics libraries like OpenGL, or image formats like BMP or PNG.</p>
+<p>But, in the spirit of simplifying the problem so that we can do everything ourselves, we will simplify the problem!
+As a first step, we&rsquo;ll display image as text in the terminal.
+That is, we&rsquo;ll print <code>.</code> for &ldquo;white&rdquo; pixels and <code>x</code> for &ldquo;black&rdquo; pixels.</p>
+<p>So, as the very first step, let&rsquo;s write some code to display such image by just printing it.
+A good example image would be 64 by 48 pixels wide, with 5 pixel large circle in the center.
+And here&rsquo;s the first encounter of math: to do this, we want to iterate all <code>(x, y)</code> pixels and fill them if they are inside the circle.
+It&rsquo;s useful to recall equation for circle at the origin: <code>x^2 + y^2 = r^2</code> where <code>r</code> is the radius.</p>
+<p>🎉 we got hello-world working!
+Now, let&rsquo;s go for more image-y images.
+We can roll our own &ldquo;real&rdquo; format like BMP (I think that one is comparatively simple), but there&rsquo;s a cheat code here.
+There are text-based image formats!
+In particular, PPM is the one especially convenient.
+<a href="https://en.wikipedia.org/wiki/Netpbm">Wikipedia Article</a> should be enough to write our own impl.
+I suggest using <code>P3</code> variation, but <code>P6</code> is also nice if you want something less offensively inefficient.</p>
+<p>So, rewrite your image outputting code to produce a <code>.ppm</code> file, and also make sure that you have an image viewer that can actually display it.
+Spend some time viewing your circle in its colorful glory (can you color it with a gradient?).</p>
+<p>If you made it this far, I think you understand the spirit of the exercise &mdash; you&rsquo;ve just implemented an encoder for a real image format, using nothing but a Wikipedia article.
+It might not be the fastest encoder out there, but it&rsquo;s the thing you did yourself.
+You probably want to encapsulate it in a module or something, and do a nice API over it.
+Go for it! Experiment with various abstractions in the language.</p>
+
+<aside class="admn note">
+<i class="fa fa-info-circle"></i>
+<div><p>There are two ways to &ldquo;write a .ppm file&rdquo;: your ray tracer can write to a specific named file on disk.
+Alternatively, it can print directly to stdout, to facilitate redirection:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-title function_">$</span> my-ray-tracer &gt; image.ppm</code></pre>
+
+</figure>
+<p>These days, I find printing to stdout more convenient, but I used to prefer writing directly to a file!</p>
+</div>
+</aside></section>
+<section id="One-Giant-Leap-Into-3D">
+
+    <h2>
+    <a href="#One-Giant-Leap-Into-3D">One Giant Leap Into 3D </a>
+    </h2>
+<p>Now that we can display stuff, let&rsquo;s do an absolutely basic ray tracer.
+We&rsquo;ll use a very simple scene: just a single sphere with the camera looking directly at it.
+And we&rsquo;ll use a trivial ray tracing algorithm: shoot the ray from the camera, if it hit the sphere, paint black, else, paint white.
+If you do this as a mental experiment, you&rsquo;ll realize that the end result is going to be <em>exactly</em> what we&rsquo;ve got so far: a picture with a circle in it.
+Except now, it&rsquo;s going to be in 3D!</p>
+<p>This is going to be the most annoying part, as there are a lot of fiddly details to get this right, while the result is, ahem, underwhelming.
+Let&rsquo;s do this though.</p>
+<p>First, the sphere.
+For simplicity, let&rsquo;s assume that its center is at the origin, and it has radius 5, and so it&rsquo;s equation is</p>
+
+<figure class="code-block">
+
+
+<pre><code>x^2 + y^2 + z^2 = 25</code></pre>
+
+</figure>
+<p>Or, in vector form:</p>
+
+<figure class="code-block">
+
+
+<pre><code>v̅ ⋅ v̅ = 25</code></pre>
+
+</figure>
+<p>Here, <code>v̅</code> is a point on a sphere (an <code>(x, y, z)</code> vector) and <code>⋅</code> is the dot product.
+As a bit of foreshadowing, if you are brave enough to take a stab at deriving various formulas, keeping to vector notation might be simpler.</p>
+<p>Now, let&rsquo;s place the camera.
+It is convenient to orient axes such that <code>Y</code> points up, <code>X</code> points to the right, and <code>Z</code> points at the viewer (ie, <code>Z</code> is depth).
+So let&rsquo;s say that camera is at <code>(0, 0, -20)</code> and it looks at <code>(0, 0, 0)</code> (so, directly at the sphere&rsquo;s center).</p>
+<p>Now, the fiddly bit.
+It&rsquo;s somewhat obvious how to cast a ray from the camera. If camera&rsquo;s position is <code>C̅</code>, and we cast the ray in the direction <code>d̅</code>, then the equation of points on the ray is</p>
+
+<figure class="code-block">
+
+
+<pre><code>C̅ + t d̅</code></pre>
+
+</figure>
+<p>where <code>t</code> is a scalar parameter.
+Or, in the cartesian form,</p>
+
+<figure class="code-block">
+
+
+<pre><code>(0 + t dx, 0 + t dy, -20 + t dz)</code></pre>
+
+</figure>
+<p>where <code>(dx, dy, dz)</code> is the direction vector for a particular ray.
+For example, for a ray which goes straight to the center of the sphere, that would be <code>(0, 0, 1)</code>.</p>
+<p>What is not obvious is how do we pick direction <code>d</code>?
+We&rsquo;ll figure that out later.
+For now, assume that we have some magical box, which, given <code>(x, y)</code> position of the pixel in the image, gives us the <code>(dx, dy, dz)</code> of the corresponding ray.
+With that, we can use the following algorithm:</p>
+<p>Iterate through all <code>(x, y)</code> pixels of our 64x48 the image.
+From the <code>(x, y)</code> of each pixel, compute the corresponding ray&rsquo;s <code>(dx, dy, dz)</code>.
+Check if the ray intersects the sphere.
+If it does, plaint the <code>(x, y)</code> pixel black.</p>
+<p>To check for intersection, we can plug the ray equation, <code>C̅ + t d̅</code>, into the sphere equation, <code>v̅ ⋅ v̅ = r^2</code>.
+That is, we can substitute <code>C̅ + t d̅</code> for <code>v̅</code>.
+As <code>C̅</code>, <code>d̅</code> and <code>r</code> are specific numbers, the resulting equation would have only a single variable, <code>t</code>, and we could solve for that.
+For details, either apply pencil and paper, or look up &ldquo;ray sphere intersection&rdquo;.</p>
+<p>But how do we find d̅ for each pixel?
+To do that, we actually need to add the screen to the scene.
+Our image is 64x48 rectangle.
+So let&rsquo;s place that between the camera and the sphere.</p>
+<p>We have camera at <code>(0, 0, -20)</code> our rectangular screen at, say, <code>(0, 0, -10)</code> and a sphere at <code>(0, 0, 0)</code>.
+Now, each pixel in our 2D image has a corresponding point in our 3D scene, and we&rsquo;ll cast the ray from camera&rsquo;s position through this point.</p>
+<p>The full list of parameters to define the scene is:</p>
+
+<figure class="code-block">
+
+
+<pre><code>sphere center:   0 0 0</code>
+<code>sphere radius:   5</code>
+<code>camera position: 0 0 -20</code>
+<code>camera up:       0 1 0</code>
+<code>camera right:    1 0 0</code>
+<code>focal distance:  10</code>
+<code>screen width:    64</code>
+<code>screen height:   48</code></pre>
+
+</figure>
+<p>Focal distance is the distance from the camera to the screen.
+If we know the direction camera is looking along and the focal distance, we can calculate the position of the center of the screen, but that&rsquo;s not enough.
+The screen can rotate, as we didn&rsquo;t fixed which side is up, so we need an extra parameter for that.
+We also add a parameter for direction to the right for convenience, though it&rsquo;s possible to derive &ldquo;right&rdquo; from &ldquo;up&rdquo; and &ldquo;forward&rdquo; directions.</p>
+<p>Given this set of parameters, how do we calculate the ray corresponding to, say, <code>(10, 20)</code> pixel?
+Well, I&rsquo;ll leave that up to you, but one hint I&rsquo;ll give is that you can calculate the middle of the screen (camera position + view direction × focal distance).
+If you have the middle of the screen, you can get to <code>(x, y)</code> pixel by stepping <code>x</code> steps up (and we know up!) and <code>y</code> steps right (and we know right!).
+Once we know the coordinates of the point of the screen through which the ray shoots, we can compute ray&rsquo;s direction as the difference between that point and camera&rsquo;s origin.</p>
+<p>Again, this is super fiddly and frustrating!
+My suggestion would be:</p>
+<ul>
+<li>
+Draw some illustrations to understand relation between camera, screen, sphere, and rays.
+</li>
+<li>
+Try to write the code which, given <code>(x, y)</code> position of the pixel in the image, gives <code>(dx, dy, dz)</code> coordinates of the direction of the ray from the camera through the pixel.
+</li>
+<li>
+If that doesn&rsquo;t work, lookup the solution, <a href="https://avikdas.com/build-your-own-raytracer/01-casting-rays/project.html">https://avikdas.com/build-your-own-raytracer/01-casting-rays/project.html</a> describes one way to do it!
+</li>
+</ul>
+<p>Coding wise, we obviously want to introduce some machinery here.
+The basic unit we need is a 3D vector &mdash; a triple of three real numbers <code>(x, y, z)</code>.
+It should support all the expected operations &mdash; addition, subtraction, multiplication by scalar, dot product, etc.
+If your language supports operator overloading, you might look that up know.
+Is it a good idea to overload operator for dot product?
+You won&rsquo;t know unless you try!</p>
+<p>We also need something to hold the info about sphere, camera and the screen and to do the ray casting.</p>
+<p>If everything works, you should get a familiar image of the circle.
+But it&rsquo;s now powered by a real ray tracer and its real honest to god 3D, even if it doesn&rsquo;t look like it!
+Indeed, with ray casting and ray-sphere intersection code, all the essential aspects are in place, from now on everything else are just bells and whistles.</p>
+</section>
+<section id="Second-Sphere">
+
+    <h2>
+    <a href="#Second-Sphere">Second Sphere </a>
+    </h2>
+<p>Ok, now that we can see one sphere, let&rsquo;s add the second one.
+We need to solve two subproblems for this to make sense.
+<em>First</em>, we need to parameterize our single sphere with the color (so that the second one looks differently, once we add it).
+<em>Second</em>, we should no longer hard-code <code>(0, 0, 0)</code> as a center of the sphere, and make that a parameter, adjusting the formulas accordingly.
+This is a good place to debug the code.
+If you think you move the sphere up, does it actually moves up in the image?</p>
+<p>Now, the second sphere can be added with different radius, position and color.
+The ray casting code now needs to be adjusted to say <em>which</em> sphere intersected the ray.
+Additionally, it needs to handle the case where the ray intersects <em>both</em> spheres and figure out which one is closer.</p>
+<p>With this machinery in hand, we can now create some true 3D scenes.
+If one sphere is fully in front of the other, that&rsquo;s just concentric circles.
+But if the spheres intersect, the picture is somewhat more interesting.</p>
+</section>
+<section id="Let-There-Be-Phong">
+
+    <h2>
+    <a href="#Let-There-Be-Phong">Let There Be Phong </a>
+    </h2>
+<p>The next step is going to be comparatively easy implementation wise, but it will fill our spheres with vibrant colors and make them spring out in their full 3D glory.
+We will add light to the scene.</p>
+<p>Light source will be parameterized by two values:</p>
+<ul>
+<li>
+Position of the light source.
+</li>
+<li>
+Color and intensity of light.
+</li>
+</ul>
+<p>For the latter, we can use a vector with three components <code>(red, green, blue)</code>, where each components varies from 0.0 (no light) to 1.0 (maximally bright light).
+We can use a similar vector to describe a color of the object.
+Now, when the light hits the object, the resulting color would be a componentwise product of the light&rsquo;s color and the object&rsquo;s color.</p>
+<p>Another contributor is the direction of light.
+If the light falls straight at the object, it seems bright.
+If the light falls obliquely, it is more dull.</p>
+<p>Let&rsquo;s get more specific:</p>
+<ul>
+<li>
+<code>P̅</code> is a point on our sphere where the light falls.
+</li>
+<li>
+<code>N̅</code> is the normal vector at <code>P̅</code>.
+That is, it&rsquo;s a vector with length 1, which is locally perpendicular to the surface at <code>P̅</code>
+</li>
+<li>
+<code>L̅</code> is the position of the light source
+</li>
+<li>
+<code>R̅</code> is a vector of length one from <code>P̅</code> to <code>L̅</code>: <code>R̅ = (L̅ - P̅) / |L̅ - P̅|</code>
+</li>
+</ul>
+<p>Then, <code>R̅ ⋅ N̅</code> gives us this &ldquo;is the light falling straight at the surface?&rdquo; coefficient between 0 and 1.
+Dot product between two unit vectors measures how similar their direction is (it is 0 for perpendicular vectors, and 1 for collinear ones).
+So, &ldquo;is light perpendicular&rdquo; is the same as &ldquo;is light collinear with normal&rdquo; is dot product.</p>
+<p>The final color will be the memberwise product of light&rsquo;s color and sphere&rsquo;s color multiplied by this attenuating coefficient.
+Putting it all together:</p>
+<p>For each pixel <code>(x, y)</code> we cast a <code>C̅ + t d̅</code> ray through it.
+If the ray hits the sphere, we calculate point <code>P</code> where it happens, as well as sphere&rsquo;s normal at point <code>P</code>.
+For sphere, normal is a vector which connects sphere&rsquo;s center with <code>P</code>.
+Then we cast a ray from <code>P</code> to the light source <code>L̅</code>.
+If this ray hits the other sphere, the point is occluded and the pixel remains dark.
+Otherwise, we compute the color using using the angle between normal and direction to the light.</p>
+<p>With this logic in place, the picture now should display two 3D-looking spheres, rather than a pair of circles.
+In particular, our spheres now cast shadows!</p>
+<p>What we implemented here is a part of <a href="https://en.wikipedia.org/wiki/Phong_reflection_model">Phong reflection model</a>, specifically, the diffuse part.
+Extending the code to include ambient and specular parts is a good way to get some nicer looking pictures!</p>
+</section>
+<section id="Scene-Description-Language">
+
+    <h2>
+    <a href="#Scene-Description-Language">Scene Description Language </a>
+    </h2>
+<p>At this point, we accumulated quite a few parameters: camera config, positions of spheres, there colors, light sources (you totally can have many of them!).
+Specifying all those things as constants in the code makes experimentation hard, so a next logical step is to devise some kind of textual format which describes the scene.
+That way, our ray tracer reads a textual screen description as an input, and renders a <code>.ppm</code> as an output.</p>
+<p>One obvious choice is to use JSON, though it&rsquo;s not too convenient to edit by hand, and bringing in a JSON parser is contrary to our &ldquo;do it yourself&rdquo; approach.
+So I would suggest to design your own small language to specify the scene.
+You might want to take a look at <a href="https://kdl.dev">https://kdl.dev</a> for the inspiration.</p>
+<p>Note how the program grows bigger &mdash; there are now distinctive parts for input parsing, output formatting, rendering per-se, as well as the underlying nascent 3D geometry library.
+As usual, if you feel like organizing all that somewhat better, go for it!</p>
+</section>
+<section id="Plane-And-Other-Shapes">
+
+    <h2>
+    <a href="#Plane-And-Other-Shapes">Plane And Other Shapes </a>
+    </h2>
+<p>So far, we&rsquo;ve only rendered spheres.
+There&rsquo;s a huge variety of other shapes we can add, and it makes sense to tackle at least a couple.
+A good candidate is a plane.
+To specify a plane, we need a normal, and a point on a plane.
+For example, <code>N̅ ⋅ v̅ = 0</code> is the equation of the plain which goes through the origin and is orthogonal to <code>N̅</code>.
+We can plug our ray equation instead of <code>v̅</code> and solve for <code>t</code> as usual.</p>
+<p>The second shape to add is a triangle.
+A triangle can be naturally specified using its three vertexes.
+One of the more advanced math exercises would be to derive a formula for ray-triangle intersection.
+As usual, math isn&rsquo;t the point of the exercise, so feel free to just look that up!</p>
+<p>With spheres, planes and triangles which are all shapes, there clearly is some amount of polymorphism going on!
+You might want to play with various ways to best express that in your language of choice!</p>
+</section>
+<section id="Meshes">
+
+    <h2>
+    <a href="#Meshes">Meshes </a>
+    </h2>
+<p>Triangles are interesting, because there are a lot of existing 3D models specified as a bunch of triangles.
+If you download such a model and put it into the scene, you can render somewhat impressive images.</p>
+<p>There are many formats for storing 3D meshes, but for out purposes <a href="https://en.wikipedia.org/wiki/Wavefront_.obj_file">.obj</a> files are the best.
+Again, this is a plain text format which you can parse by hand.</p>
+<p>There are plenty of <code>.obj</code> models to download, with the <a href="https://graphics.cs.utah.edu/courses/cs6620/fall2013/prj05/teapot.obj">Utah teapot</a> being the most famous one.</p>
+<p>Note that the model specifies three parameters for each triangle&rsquo;s vertex:</p>
+<ul>
+<li>
+coordinate (<code>v</code>)
+</li>
+<li>
+normal (<code>vn</code>)
+</li>
+<li>
+texture (<code>vt</code>)
+</li>
+</ul>
+<p>For the first implementation, you&rsquo;d want to ignore <code>vn</code> and <code>vt</code>, and aim at getting a highly polygonal teapot on the screen.
+Note that the model contains thousands of triangles, and would take significantly more time to render.
+You might want to downscale the resolution a bit until we start optimizing performance.</p>
+<p>To make the picture less polygony, you&rsquo;d want to look at those <code>vn</code> normals.
+The idea here is that, instead of using a true triangle&rsquo;s normal when calculating light, to use a fake normal as if the the triangle wasn&rsquo;t actually flat.
+To do that, the <code>.obj</code> files specifies &ldquo;fake&rdquo; normals for each vertex of a triangle.
+If a ray intersects a triangle somewhere in the middle, you can compute a fake normal at that point by taking a weighted average of the three normals at the vertexes.</p>
+<p>At this point, you should get a picture roughly comparable to the one at the start of the article!</p>
+</section>
+<section id="Performance-Optimizations">
+
+    <h2>
+    <a href="#Performance-Optimizations">Performance Optimizations </a>
+    </h2>
+<p>With all bells and whistles, our ray tracer should be rather slow, especially for larger images.
+There are three tricks I suggest to make it faster (and also to learn a bunch of stuff).</p>
+<p><em>First</em>, ray tracing is an embarrassingly parallel task: each pixel is independent from the others.
+So, as a quick win, make sure that you program uses all the cores for rendering.
+Did you manage to get a linear speedup?</p>
+<p><em>Second</em>, its a good opportunity to look into profiling tools.
+Can you figure out what specifically is the slowest part?
+Can you make it faster?</p>
+<p><em>Third</em>, our implementation which loops over each shape to find the closest intersection is a bit naive.
+It would be cool if we had something like a binary search tree, which would show us the closest shape automatically.
+As far as I know, there isn&rsquo;t a general algorithmically optimal index data structure for doing spatial lookups.
+However, there&rsquo;s a bunch of somewhat heuristic data structures which tend to work well in practice.</p>
+<p>One that I suggest implementing is the bounding volume hierarchy.
+The crux of the idea is that we can take a bunch of triangles and place them inside a bigger object (eg, a gigantic sphere).
+Then, if a ray doesn&rsquo;t intersect this bigger object, we don&rsquo;t need to check any triangles contained within.
+There&rsquo;s a certain freedom in how one picks such bounding objects.</p>
+<p>For BVH, we will use axis-aligned bounding box as our bounding volumes.
+It is a cuboid whose edges are parallel to the coordinate axis.
+You can parametrize an AABB with two points &mdash; the one with the lowest coordinates, and the one with the highest.
+It&rsquo;s also easy to construct an AABB which bounds a set of shapes &mdash; take the minimum and maximum coordinates of all vertexes.
+Similarly, intersecting an AABB with a ray is fast.</p>
+<p>The next idea is to define a hierarchy of AABBs.
+First, we define a root AABB for the whole scene.
+If the ray doesn&rsquo;t hit it, we are done.
+The root box is then subdivided into two smaller boxes.
+The ray can hit one or two of them, and we recur into each box that got hit.
+Worst case, we are recurring into both subdivisions, which isn&rsquo;t any faster, but in the common case we can skip at least a half.
+For simplicity, we also start with computing an AABB for each triangle we have in a scene, so we can think uniformly about a bunch of AABBs.</p>
+<p>Putting everything together, we start with a bunch of small AABBs for our primitives.
+As a first step, we compute their common AABB.
+This will be the basis of our recursion step: a bunch of small AABBs, and a huge AABB encompassing all of them.
+We want to subdivide the big box.
+To do that, we select its longest axis (eg, if the big box is very tall, we aim to cut it in two horizontally), and find a midpoint.
+Then, we sort small AABBs into those whoche center is before or after midpoint along this axis.
+Finally, for each of the two subsets we compute a pair of new AABBs, and then recur.</p>
+<p>Crucially, the two new bounding boxes might intersect.
+We can&rsquo;t just cut the root box in two and unambiguously assign small AABBs to the two half, as they might not be entirely within one.
+But, we can expect the intersection to be pretty small in practice.</p>
+</section>
+<section id="Next-Steps">
+
+    <h2>
+    <a href="#Next-Steps">Next Steps </a>
+    </h2>
+<p>If you&rsquo;ve made it this far, you have a pretty amazing pice of software!
+While it probably clocks at only a couple of thousands lines of code, it covers a pretty broad range of topics, from text file parsing to advanced data structures for spatial data.
+I deliberately spend no time explaining how to best fit all these pieces into a single box, that&rsquo;s the main thing for you to experiment with and to learn.</p>
+<p>There are two paths one can take from here:</p>
+<ul>
+<li>
+If you liked the graphics programming aspect of the exercise, there&rsquo;s a <em>lot</em> you can do to improve the quality of the output.
+<a href="https://pbrt.org">https://pbrt.org</a> is the canonical book on the topic.
+</li>
+<li>
+If you liked the software engineering side of the project, you can try to re-implement it in different programming languages, to get a specific benchmark to compare different programming paradigms.
+Alternatively, you might want to look for other similar self-contained hand-made projects.
+Some options include:
+<ul>
+<li>
+Software rasterizer: rather than simulating a path of a ray, we can project triangles onto the screen.
+This is potentially much faster, and should allow for real-time rendering.
+</li>
+<li>
+A highly concurrent chat server: a program which listens on a TCP port, allows clients to connect to it and exchange messages.
+</li>
+<li>
+A toy programming language: going full road from a text file to executable <code>.wasm</code>. Bonus points if you also do an LSP server for your language.
+</li>
+<li>
+A distributed key-value store based on Paxos or Raft.
+</li>
+<li>
+A toy relational database
+</li>
+</ul>
+</li>
+</ul>
+</section>
+]]></content>
+</entry>
+
+<entry>
+<title type="text">If a Tree Falls in a Forest, Does It Overflow the Stack?</title>
+<link href="https://matklad.github.io/2022/11/18/if-a-tree-falls-in-a-forest-does-it-overflow-the-stack.html" rel="alternate" type="text/html" title="Self Modifying Code" />
+<published>2022-11-18T00:00:00+00:00</published>
+<updated>2022-11-18T00:00:00+00:00</updated>
+<id>https://matklad.github.io/2022/11/18/if-a-tree-falls-in-a-forest-does-it-overflow-the-stack</id>
+<author><name>Alex Kladov</name></author>
+<summary type="html"><![CDATA[A well-known pitfall when implementing a linked list in Rust is that the the default recursive drop implementation causes stack overflow for long lists.
+A similar problem exists for tree data structures as well.
+This post describes a couple of possible solutions for trees.
+This is a rather esoteric problem, so the article is denser than is appropriate for a tutorial.]]></summary>
+<content type="html" xml:base="https://matklad.github.io/2022/11/18/if-a-tree-falls-in-a-forest-does-it-overflow-the-stack.html"><![CDATA[
+    <h1>
+    <a href="#If-a-Tree-Falls-in-a-Forest-Does-It-Overflow-the-Stack">If a Tree Falls in a Forest, Does It Overflow the Stack? <time datetime="2022-11-18">Nov 18, 2022</time></a>
+    </h1>
+<p>A well-known pitfall when implementing a linked list in Rust is that the the default recursive <code>drop</code> implementation causes stack overflow for long lists.
+A similar problem exists for tree data structures as well.
+This post describes a couple of possible solutions for trees.
+This is a rather esoteric problem, so the article is denser than is appropriate for a tutorial.</p>
+<p>Let&rsquo;s start with our beloved linked list:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Node</span>&lt;T&gt; {</code>
+<code>  value: T,</code>
+<code>  next: <span class="hl-type">Option</span>&lt;<span class="hl-type">Box</span>&lt;Node&lt;T&gt;&gt;&gt;,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span>&lt;T&gt; Node&lt;T&gt; {</code>
+<code>  <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>(value: T) <span class="hl-punctuation">-&gt;</span> Node&lt;T&gt; {</code>
+<code>    Node { value, next: <span class="hl-literal">None</span> }</code>
+<code>  }</code>
+<code>  <span class="hl-keyword">fn</span> <span class="hl-title function_">with_next</span>(<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, next: Node&lt;T&gt;) <span class="hl-punctuation">-&gt;</span> Node&lt;T&gt; {</code>
+<code>    <span class="hl-keyword">self</span>.next = <span class="hl-title function_ invoke__">Some</span>(<span class="hl-type">Box</span>::<span class="hl-title function_ invoke__">new</span>(next));</code>
+<code>    <span class="hl-keyword">self</span></code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>It&rsquo;s easy to cause this code to crash:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-meta">#[test]</span></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">stack_overflow</span>() {</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">node</span> = Node::<span class="hl-title function_ invoke__">new</span>(<span class="hl-number">0</span>);</code>
+<code>  <span class="hl-keyword">for</span> <span class="hl-variable">_</span> <span class="hl-keyword">in</span> <span class="hl-number">0</span>..<span class="hl-number">100_000</span> {</code>
+<code>    node = Node::<span class="hl-title function_ invoke__">new</span>(<span class="hl-number">0</span>).<span class="hl-title function_ invoke__">with_next</span>(node);</code>
+<code>  }</code>
+<code>  <span class="hl-title function_ invoke__">drop</span>(node) <span class="hl-comment">// boom</span></code>
+<code>}</code></pre>
+
+</figure>
+<p>The crash happens in the automatically generated recursive <code>drop</code> function.
+The fix is to write <code>drop</code> manually, in a non-recursive way:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">impl</span>&lt;T&gt; <span class="hl-built_in">Drop</span> <span class="hl-keyword">for</span> <span class="hl-title class_">Node</span>&lt;T&gt; {</code>
+<code>  <span class="hl-keyword">fn</span> <span class="hl-title function_">drop</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>) {</code>
+<code>    <span class="hl-keyword">while</span> <span class="hl-keyword">let</span> <span class="hl-variable">Some</span>(next) = <span class="hl-keyword">self</span>.next.<span class="hl-title function_ invoke__">take</span>() {</code>
+<code>      *<span class="hl-keyword">self</span> = *next;</code>
+<code>    }</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>What about trees?</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Node</span>&lt;T&gt; {</code>
+<code>  value: T,</code>
+<code>  left: <span class="hl-type">Option</span>&lt;<span class="hl-type">Box</span>&lt;Node&lt;T&gt;&gt;&gt;,</code>
+<code>  right: <span class="hl-type">Option</span>&lt;<span class="hl-type">Box</span>&lt;Node&lt;T&gt;&gt;&gt;,</code>
+<code>}</code></pre>
+
+</figure>
+<p>If the tree is guaranteed to be balanced, the automatically generated drop is actually fine, because the height of the tree will be logarithmic.
+If the tree is unbalanced though, the same stack overflow might happen.</p>
+<p>Let&rsquo;s write an iterative <code>Drop</code> to fix this.
+The problem though is that the &ldquo;swap with <code>self</code>&rdquo; trick we used for list doesn&rsquo;t work, as we have two children to recur into.
+The standard solution would be to replace a stack with an explicit vector of work times:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">impl</span>&lt;T&gt; <span class="hl-built_in">Drop</span> <span class="hl-keyword">for</span> <span class="hl-title class_">Node</span>&lt;T&gt; {</code>
+<code>  <span class="hl-keyword">fn</span> <span class="hl-title function_">drop</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>) {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">work</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>    work.<span class="hl-title function_ invoke__">extend</span>(<span class="hl-keyword">self</span>.left.<span class="hl-title function_ invoke__">take</span>());</code>
+<code>    work.<span class="hl-title function_ invoke__">extend</span>(<span class="hl-keyword">self</span>.right.<span class="hl-title function_ invoke__">take</span>());</code>
+<code>    <span class="hl-keyword">while</span> <span class="hl-keyword">let</span> <span class="hl-variable">Some</span>(node) = work.<span class="hl-title function_ invoke__">pop</span>() {</code>
+<code>      work.<span class="hl-title function_ invoke__">extend</span>(node.left.<span class="hl-title function_ invoke__">take</span>());</code>
+<code>      work.<span class="hl-title function_ invoke__">extend</span>(node.right.<span class="hl-title function_ invoke__">take</span>());</code>
+<code>    }</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>This works, but also makes my internal C programmer scream: we allocate a vector to free memory!
+Can we do better?</p>
+<p>One approach would be to build on balanced trees observation.
+If we recur into the shorter branch, and iteratively drop the longer one, we should be fine:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">impl</span>&lt;T&gt; <span class="hl-built_in">Drop</span> <span class="hl-keyword">for</span> <span class="hl-title class_">Node</span>&lt;T&gt; {</code>
+<code>  <span class="hl-keyword">fn</span> <span class="hl-title function_">drop</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>) {</code>
+<code>    <span class="hl-keyword">loop</span> {</code>
+<code>      <span class="hl-title function_ invoke__">match</span> (<span class="hl-keyword">self</span>.left.<span class="hl-title function_ invoke__">take</span>(), <span class="hl-keyword">self</span>.right.<span class="hl-title function_ invoke__">take</span>()) {</code>
+<code>        (<span class="hl-literal">None</span>, <span class="hl-literal">None</span>) =&gt; <span class="hl-keyword">break</span>,</code>
+<code>        (<span class="hl-literal">None</span>, <span class="hl-title function_ invoke__">Some</span>(it)) | (<span class="hl-title function_ invoke__">Some</span>(it), <span class="hl-literal">None</span>) =&gt; *<span class="hl-keyword">self</span> = *it,</code>
+<code>        (<span class="hl-title function_ invoke__">Some</span>(left), <span class="hl-title function_ invoke__">Some</span>(right)) =&gt; {</code>
+<code>          *<span class="hl-keyword">self</span> =</code>
+<code>            *<span class="hl-keyword">if</span> left.depth &gt; right.depth { left } <span class="hl-keyword">else</span> { right }</code>
+<code>        }</code>
+<code>      }</code>
+<code>    }</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>This requires maintaining the depths though.
+Can we make do without?
+My C instinct (not that I wrote any substantial amount of C though) would be to go down the tree, and stash the parent links into the nodes themselves.
+And we actually can do something like that:</p>
+<ul>
+<li>
+If the current node has only a single child, we can descend into the node
+</li>
+<li>
+If there are two children, we can rotate the tree. If we always rotate into a
+single direction, eventually we&rsquo;ll get into the single-child situation.
+</li>
+</ul>
+<p>Here&rsquo;s how a single rotation could look:</p>
+
+<figure>
+
+<img alt="" src="https://user-images.githubusercontent.com/1711539/202797128-87e40cf0-be55-44b3-9bdf-5dc15b33812b.png">
+</figure>
+<p>Or, in code,</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">impl</span>&lt;T&gt; <span class="hl-built_in">Drop</span> <span class="hl-keyword">for</span> <span class="hl-title class_">Node</span>&lt;T&gt; {</code>
+<code>  <span class="hl-keyword">fn</span> <span class="hl-title function_">drop</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>) {</code>
+<code>    <span class="hl-keyword">loop</span> {</code>
+<code>      <span class="hl-title function_ invoke__">match</span> (<span class="hl-keyword">self</span>.left.<span class="hl-title function_ invoke__">take</span>(), <span class="hl-keyword">self</span>.right.<span class="hl-title function_ invoke__">take</span>()) {</code>
+<code>        (<span class="hl-literal">None</span>, <span class="hl-literal">None</span>) =&gt; <span class="hl-keyword">break</span>,</code>
+<code>        (<span class="hl-literal">None</span>, <span class="hl-title function_ invoke__">Some</span>(it)) | (<span class="hl-title function_ invoke__">Some</span>(it), <span class="hl-literal">None</span>) =&gt; *<span class="hl-keyword">self</span> = *it,</code>
+<code>        (<span class="hl-title function_ invoke__">Some</span>(<span class="hl-keyword">mut</span> left), <span class="hl-title function_ invoke__">Some</span>(right)) =&gt; {</code>
+<code>          mem::<span class="hl-title function_ invoke__">swap</span>(<span class="hl-keyword">self</span>, &amp;<span class="hl-keyword">mut</span> *left);</code>
+<code>          left.left = <span class="hl-keyword">self</span>.right.<span class="hl-title function_ invoke__">take</span>();</code>
+<code>          left.right = <span class="hl-title function_ invoke__">Some</span>(right);</code>
+<code>          <span class="hl-keyword">self</span>.right = <span class="hl-title function_ invoke__">Some</span>(left);</code>
+<code>        }</code>
+<code>      }</code>
+<code>    }</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>Ok, what if we have an n-ary tree?</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Node</span>&lt;T&gt; {</code>
+<code>  value: T,</code>
+<code>  children: <span class="hl-type">Vec</span>&lt;Node&lt;T&gt;&gt;,</code>
+<code>}</code></pre>
+
+</figure>
+<p>I <em>think</em> the same approach works: we can treat the first child as <code>left</code>, and the last child as <code>right</code>, and do essentially the same rotations.
+Though, we will rotate in other direction (as removing the right child is cheaper), and we&rsquo;ll also check that we have at least two grandchildren (to avoid allocation when pushing to an empty vector).</p>
+<p>Which gives something like this:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">impl</span>&lt;T&gt; <span class="hl-built_in">Drop</span> <span class="hl-keyword">for</span> <span class="hl-title class_">Node</span>&lt;T&gt; {</code>
+<code>  <span class="hl-keyword">fn</span> <span class="hl-title function_">drop</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>) {</code>
+<code>    <span class="hl-keyword">loop</span> {</code>
+<code>      <span class="hl-keyword">let</span> <span class="hl-variable">Some</span>(<span class="hl-keyword">mut</span> right) = <span class="hl-keyword">self</span>.children.<span class="hl-title function_ invoke__">pop</span>() <span class="hl-keyword">else</span> {</code>
+<code>        <span class="hl-keyword">break</span>;</code>
+<code>      };</code>
+<code>      <span class="hl-keyword">if</span> <span class="hl-keyword">self</span>.children.<span class="hl-title function_ invoke__">is_empty</span>() {</code>
+<code>        *<span class="hl-keyword">self</span> = right;</code>
+<code>        <span class="hl-keyword">continue</span>;</code>
+<code>      }</code>
+<code>      <span class="hl-keyword">if</span> right.children.<span class="hl-title function_ invoke__">len</span>() &lt; <span class="hl-number">2</span> {</code>
+<code>        <span class="hl-keyword">self</span>.children.<span class="hl-title function_ invoke__">extend</span>(right.children.<span class="hl-title function_ invoke__">drain</span>(..));</code>
+<code>        <span class="hl-keyword">continue</span>;</code>
+<code>      }</code>
+<code>      <span class="hl-comment">// Non trivial case:</span></code>
+<code>      <span class="hl-comment">//   &gt;= 2 children,</span></code>
+<code>      <span class="hl-comment">//   &gt;= 2 grandchildren.</span></code>
+<code>      <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">me</span> = mem::<span class="hl-title function_ invoke__">replace</span>(<span class="hl-keyword">self</span>, right);</code>
+<code>      mem::<span class="hl-title function_ invoke__">swap</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>.children[<span class="hl-number">0</span>], &amp;<span class="hl-keyword">mut</span> me);</code>
+<code>      <span class="hl-comment">// Doesn&#x27;t allocate, this is the same slot</span></code>
+<code>      <span class="hl-comment">// we popped from at the start of the loop.</span></code>
+<code>      <span class="hl-keyword">self</span>.children[<span class="hl-number">0</span>].children.<span class="hl-title function_ invoke__">push</span>(me);</code>
+<code>    }</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>I am not sure this works, and I am not sure this works in linear time, but I am fairly certain that something like this could be made to work if need be.</p>
+<p>Though, practically, if something like this is a concern, you probably want to re-design the tree structure to be something like this instead:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Node</span>&lt;T&gt; {</code>
+<code>  value: T,</code>
+<code>  children: Range&lt;<span class="hl-type">usize</span>&gt;,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">Tree</span>&lt;T&gt; {</code>
+<code>   nodes: <span class="hl-type">Vec</span>&lt;Node&lt;T&gt;&gt;,</code>
+<code>}</code></pre>
+
+</figure>
+]]></content>
+</entry>
+
+<entry>
+<title type="text">Accessibility: px or rem?</title>
+<link href="https://matklad.github.io/2022/11/05/accessibility-px-or-rem.html" rel="alternate" type="text/html" title="Self Modifying Code" />
+<published>2022-11-05T00:00:00+00:00</published>
+<updated>2022-11-05T00:00:00+00:00</updated>
+<id>https://matklad.github.io/2022/11/05/accessibility-px-or-rem</id>
+<author><name>Alex Kladov</name></author>
+<summary type="html"><![CDATA[The genre of this post is: I am having opinions on something I am not an expert at, so hopefully the Internet would correct me.]]></summary>
+<content type="html" xml:base="https://matklad.github.io/2022/11/05/accessibility-px-or-rem.html"><![CDATA[
+    <h1>
+    <a href="#Accessibility-px-or-rem">Accessibility: px or rem? <time datetime="2022-11-05">Nov 5, 2022</time></a>
+    </h1>
+<p>The genre of this post is: &ldquo;I am having opinions on something I am not an expert at, so hopefully the Internet would correct me&rdquo;.</p>
+<p>The specific question in question is:</p>
+
+<figure class="blockquote">
+<blockquote><p>Should you use <code>px</code> or <code>rem</code> units in your CSS?</p>
+</blockquote>
+
+</figure>
+<p>I am not a web developer, but I do have a blog where I write CSS myself, and I very much want to do the right thing.
+I was researching and agonizing over this question for years, as I wasn&rsquo;t able to find a conclusive argument one way or another.
+So I am writing one.</p>
+<p>This isn&rsquo;t ideal, but I am lazy, so this post assumes that you already did the research and understand the mechanics of and the difference between <code>px</code>, <code>em</code>, and <code>rem</code>.
+And so, you position is probably:</p>
+
+<figure class="blockquote">
+<blockquote><p>Of course <code>rem</code>, because that honors user&rsquo;s setting for the font-size, and so is more accessible, although &hellip;</p>
+</blockquote>
+
+</figure>
+<p>Although there are buts:</p>
+<p><em>But</em> the default font-size is <code>16px</code>, and that&rsquo;s just too small.
+If you just roll with intended defaults, than the text will be painful to read even for folks with great vision!</p>
+<p><em>But</em> default font-size of <code>x</code> pixels just doesn&rsquo;t make sense: the actual perceived font size very much depends on the font itself.
+At <code>16px</code>, some fonts will be small, some tiny, and some maybe even just about right.</p>
+<p><em>But</em> the recommended way to <em>actually</em> use rem boils down to setting a percentage font-size for the root element, such that <code>1rem</code> is not the intended &ldquo;font size of the root element&rdquo;, but is equal to 1px (under default settings).
+Which, at this point, sounds like using pixels, just with more steps?
+After all, the modern browsers can zoom the pixels just fine?</p>
+<p>So, yeah, lingering doubts&hellip;
+If you are like me, you painstakingly used <code>rem</code>&rsquo;s everywhere, and then <code>html { font-size: 22px }</code> because default is unusable, and percentage of default is stupidly ugly :-)</p>
+<hr>
+<p>So lets settle the question then.</p>
+<p>The practical data we want is what do the users actually do in practice?
+Do they zoom or do they change default font size?
+I have spent 10 minutes googling that, didn&rsquo;t find the answer.</p>
+<p>After that, I decided to just check how it actually works.
+So, I opened browser&rsquo;s settings, cranked the font size to the max, and opened Google.</p>
+<p>To be honest, that was the moment where the question was mentally settled for me.
+If Google&rsquo;s search page doesn&rsquo;t respect user-agent&rsquo;s default font-size, it&rsquo;s an indirect, but also very strong, evidence that that&rsquo;s not a meaningful thing to do.</p>
+<p>The result of my ad-hoc survey:</p>
+<div class="two-col">
+<dl>
+<dt>Don&rsquo;t care:</dt>
+<dd>
+<ul>
+<li>
+Google
+</li>
+<li>
+Lobsters
+</li>
+<li>
+Hackernews
+</li>
+<li>
+Substack
+</li>
+<li>
+antirez.com
+</li>
+<li>
+tonsky.me
+</li>
+<li>
+New Reddit
+</li>
+</ul>
+</dd>
+</dl>
+<p><br>
+</p>
+<dl>
+<dt>Embiggen:</dt>
+<dd>
+<ul>
+<li>
+Wikipedia
+</li>
+<li>
+Discourse
+</li>
+<li>
+Old Reddit
+</li>
+</ul>
+</dd>
+</dl>
+</div>
+<p>Google versus Wikipedia it is, eh?
+But this is actually quite informative: if you adjust your browser&rsquo;s default font-size, you are in an &ldquo;Alice in the Wonderland&rdquo; version of the web which alternates between too large and too small.</p>
+<p>The next useful question is: what about mobile?
+After some testing and googling, it seems that changing browser&rsquo;s default font-size is just not possible on the iPhone?
+That the only option is page zoom?</p>
+<p>Again, I don&rsquo;t actually have the data on whether users rely on zoom or on font size.
+But so far it looks like the user doesn&rsquo;t really have a choice?
+Only zoom seems to actually work in practice?</p>
+<p>The final bit of evidence which completely settled the question in my mind comes from this post:</p>
+<p><a href="https://www.craigabbott.co.uk/blog/accessibility-and-font-sizes">https://www.craigabbott.co.uk/blog/accessibility-and-font-sizes</a></p>
+<p>It tells us that</p>
+
+<figure class="blockquote">
+<blockquote><p>Using the wrong units of measurement in your Cascading Style Sheets (CSS) is a
+big barrier for many visually impaired users, and it can cause your website fail
+the Web Content Accessibility Guidelines (WCAG) 2.1 on
+<a href="https://www.w3.org/WAI/WCAG21/Understanding/resize-text.html">1.4.4 Resize text</a>.</p>
+</blockquote>
+
+</figure>
+<p>That WCAG document is really worth the read:</p>
+
+<figure class="blockquote">
+<blockquote><p>The scaling of content is primarily a user agent responsibility. User agents
+that satisfy UAAG 1.0 Checkpoint 4.1 allow users to configure text scale. The
+author&rsquo;s responsibility is to create Web content that does not prevent the
+user agent from scaling the content effectively. Authors may satisfy this
+Success Criterion by verifying that content does not interfere with user agent
+support for resizing text, including text-based controls, or by providing direct
+support for resizing text or changing the layout. An example of direct support
+might be via server-side script that can be used to assign different style
+sheets.</p>
+<p><strong><strong>The author cannot rely on the user agent to satisfy this Success Criterion
+for HTML content if users do not have access to a user agent with zoom support.
+For example, if they work in an environment that requires them to use IE 6.</strong></strong></p>
+<p>If the author is using a technology whose user agents do not provide zoom
+support, the author is responsible to provide this type of functionality
+directly or to provide content that works with the type of functionality
+provided by the user agent. If the user agent doesn&rsquo;t provide zoom functionality
+but does let the user change the text size, the author is responsible for
+ensuring that the content remains usable when the text is resized.</p>
+</blockquote>
+
+</figure>
+<p>My reading of the above text: it&rsquo;s on me, as an author, to ensure that my readers can scale the content using whatever method their user agent employs.
+If the UA can zoom, that&rsquo;s perfect, we are done.</p>
+<p>If the reader&rsquo;s actual UA can&rsquo;t zoom, but it can change default font size (eg, IE 6), then I need to support that.</p>
+<p>That&rsquo;s &hellip; most reasonable I guess?
+Just make sure that your actual users, in their actual use, can read stuff.
+And I am pretty sure my target audience doesn&rsquo;t use IE 6, which I don&rsquo;t support anyway.</p>
+<p><strong><strong>TL;DR</strong></strong> for the whole post:</p>
+<p>Use pixels.
+The goal is not to check the &ldquo;I suffered pain to make my website accessible&rdquo; checkbox, the goal is to make the site accessible to real users.
+There&rsquo;s an explicit guideline about that.
+There&rsquo;s a strong evidence that, barring highly unusual circumstances, real users zoom, and pixels zoom just fine.</p>
+<hr>
+<p>As a nice bonus, if you <em><em>don&rsquo;t</em></em> use rem, you make browser&rsquo;s font size setting more useful, because it can control the scale of the browser&rsquo;s own chrome (which is fixed) independently from the scale of websites (which vary).</p>
+]]></content>
+</entry>
+
+</feed>

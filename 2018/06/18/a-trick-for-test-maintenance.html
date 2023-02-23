@@ -1,0 +1,223 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A Trick For Test Maintenance</title>
+  <meta name="description" content="This is a post about an interesting testing technique which feels like it should
+be well known. However, I haven't seen it mentioned anywhere. I don't even have
+a good name for it, I've semi-discovered it in the wild. If you know how this
+thing is called, please leave a comment!">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2018/06/18/a-trick-for-test-maintenance.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#A-Trick-For-Test-Maintenance">A Trick For Test Maintenance <time datetime="2018-06-18">Jun 18, 2018</time></a>
+    </h1>
+<p>This is a post about an interesting testing technique which feels like it should
+be well known. However, I haven&rsquo;t seen it mentioned anywhere. I don&rsquo;t even have
+a good name for it, I&rsquo;ve semi-discovered it in the wild. If you know how this
+thing is called, please leave a comment!</p>
+
+<aside class="admn note">
+<i class="fa fa-info-circle"></i>
+<div><p><a href="https://github.com/matklad/cov-mark">cov-mark</a> crate is the currently maintained and used in production implementation of this idea.</p>
+</div>
+</aside><section id="A-long-time-ago">
+
+    <h2>
+    <a href="#A-long-time-ago">A long time ago&hellip; </a>
+    </h2>
+<p>I was reading Dart analysis server source code, and came across <a href="https://github.com/dart-lang/sdk/blob/f6d2c2378a00160ca1b79f8f7bd45df97b1275e4/pkg/analysis_server/lib/src/services/correction/assist_internal.dart#L1063">this
+line</a>.
+Immediately I was struck as if by lighting. Well, not exactly in the same way,
+but you get the idea.</p>
+<p>What does this line do? I actually don&rsquo;t know, but I have a guess. My
+explanation is further down (to give you a chance to discover the
+trick as well!), but the general idea is that this line helps
+tremendously with making tests more maintainable.</p>
+</section>
+<section id="The-two-mundane-problems">
+
+    <h2>
+    <a href="#The-two-mundane-problems">The two mundane problems </a>
+    </h2>
+<p>Two tasks which programmers typically enjoy less than furiously
+cranking out new features are maintaining existing code and writing
+tests. And, as an old Russian joke says, maintaining tests is the
+worst. Here are some pain points specific to the post:</p>
+<p><strong><strong>Negative tests</strong></strong>. You want to check that something does not
+happen. Writing a test in this situation is tricky because the test
+might actually pass for a trivial reason instead of the intended
+one. The rule of thumb is to verify that the test actually fails if
+the specific condition which it covers is commented out. The problem
+with this rule of thumb is that it works in a single point in time. As
+the code evolves, the test might begin to pass for a trivial reason.</p>
+<p><strong><strong>Duplicated tests</strong></strong>. Test suites are usually append-only and grow
+indefinitely. Almost inevitably this leads to a situation where
+different tests are testing essentially the same features, or where
+one test is a superset of another.</p>
+<p><strong><strong>Bifurcated suites</strong></strong>. Somewhat similar to the previous point, you may
+end up in a situation where a single component has two separate
+test-suites in different parts of the code base. I&rsquo;d want to say that
+this happens when two developers write tests independently, but
+practice says that me and me one month later are enough to create such
+a mess :)</p>
+<p><strong><strong>Tests discoverability</strong></strong>. This is a problem a new contributor usually
+faces. Finding a piece of code where the bug fix should be applied is
+usually comparatively easier than locating the corresponding tests.</p>
+<p>The underlying issue is that it is non-trivial to answer these two
+questions:</p>
+<ul>
+<li>
+<p>Given a line of code, where is the test for this specific line?</p>
+</li>
+<li>
+<p>Given a test, where is the code that is being tested?</p>
+</li>
+</ul>
+</section>
+<section id="The-solution">
+
+    <h2>
+    <a href="#The-solution">The solution </a>
+    </h2>
+<p>The beautiful solution to this problem (which I <strong>hypothesise</strong> the
+<code>_coverageMarker()</code> line in Dart does) is to track code coverage on the
+test-by-test basis. That is, when running a test, verify that
+<strong>specific</strong> lines of code were covered by this test.</p>
+<p>I&rsquo;ve put together a small Rust library to do this, called
+<a href="https://crates.io/crates/uncover"><code>uncover</code></a>. It provides two macros:
+<code>covered_by</code> and <code>covers</code>.</p>
+<p>The first macro is used in the code under test, <a href="https://github.com/matklad/tom/blob/081b09e90b4ff64246969783fe9fb9261ba188f1/src/factory.rs#L72-L75">like
+this</a>:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">if</span> !<span class="hl-keyword">self</span>.keys.<span class="hl-title function_ invoke__">is_empty</span>() {</code>
+<code>    covered_by!(<span class="hl-string">&quot;table_with_two_names&quot;</span>);</code>
+<code>    <span class="hl-built_in">panic!</span>(<span class="hl-string">&quot;table header is already specified, can&#x27;t reset to {:?}&quot;</span>, key)</code>
+<code>}</code></pre>
+
+</figure>
+<p>The second macro is used in the <a href="https://github.com/matklad/tom/blob/081b09e90b4ff64246969783fe9fb9261ba188f1/tests/suite/factory.rs#L55-L64">corresponding test</a>:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-meta">#[test]</span></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">table_with_two_names</span>() {</code>
+<code>    covers!(<span class="hl-string">&quot;table_with_two_names&quot;</span>);</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">f</span> = Factory::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>    <span class="hl-title function_ invoke__">check_panics</span>(|| {</code>
+<code>        f.<span class="hl-title function_ invoke__">table</span>()</code>
+<code>            .<span class="hl-title function_ invoke__">with_name</span>(<span class="hl-string">&quot;foo&quot;</span>)</code>
+<code>            .<span class="hl-title function_ invoke__">with_name</span>(<span class="hl-string">&quot;bar&quot;</span>)</code>
+<code>            .<span class="hl-title function_ invoke__">build</span>();</code>
+<code>    })</code>
+<code>}</code></pre>
+
+</figure>
+<p>If the block where <code>covers</code> is used does not cause the execution of
+the corresponding <code>covered_by</code> line then the error will be raised at
+the end of the block.</p>
+<p>Under the hood, this is implemented as a global <code>HashMap&lt;String, u64&gt;</code> which
+counts how many times each line was executed. So <code>covered_by!</code>
+<a href="https://github.com/matklad/uncover/blob/1d0770d997e29731b287e9e11e4ffbbea5f456da/src/lib.rs#L146">increments</a>
+the corresponding count, and <code>covers!</code> returns a guard object that
+<a href="https://github.com/matklad/uncover/blob/1d0770d997e29731b287e9e11e4ffbbea5f456da/src/lib.rs#L174-L176">checks</a>
+in <code>Drop</code> that the count was incremented. It is possible to disable these checks
+at compile time. And yes, the library actually
+<a href="https://github.com/matklad/uncover/blob/1d0770d997e29731b287e9e11e4ffbbea5f456da/src/lib.rs#L110-L137">exposes
+a macro which defines macros</a> :)</p>
+<p>I haven&rsquo;t had a chance to apply this technique in large projects (and
+it is less useful for smaller ones), but it looks very promising.</p>
+<p>It&rsquo;s now easy to navigate between code and tests: just ripgrep the
+string literal (or write a plugin for this for your IDE). You will be
+able to find the test for the specific if-branch! This should be
+especially handy for new contributors.</p>
+<p>If this technique is used pervasively, you also get an idea about the
+overall test coverage.</p>
+<p>During refactorings, you became aware of tests which might be
+affected. Moreover, because coverage is actually checked by the tests
+themselves, you&rsquo;ll notice if some test stop to exercise the code it
+was intended to check.</p>
+<p>Once again, if you know how this thing is called, please do enlighten
+me in comments! Discussion on <a href="https://www.reddit.com/r/rust/comments/8s1eu1/blog_post_a_trick_for_test_maintenance/">/r/rust</a>.</p>
+</section>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2018-06-18-a-trick-for-test-maintenance.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

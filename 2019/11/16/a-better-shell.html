@@ -1,0 +1,268 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A Better Shell</title>
+  <meta name="description" content="I want a better shell.">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2019/11/16/a-better-shell.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#A-Better-Shell">A Better Shell <time datetime="2019-11-16">Nov 16, 2019</time></a>
+    </h1>
+<p>I want a better shell.</p>
+<p>There are exciting projects to improve data-processing capabilities of shells, like <a href="https://github.com/nushell/nushell">nushell</a>.
+However, I personally don&rsquo;t use this capability of shell a lot: 90% of commands I enter are simpler than <code>some cmd | rg pattern</code>.</p>
+<p>I primarily use shell as a way to <strong>use</strong> my system, and it is these interactive capabilities that I find lacking.
+So I want something closer in spirit to <a href="https://github.com/withoutboats/notty">notty</a>.</p>
+<section id="Things-I-Need">
+
+    <h2>
+    <a href="#Things-I-Need">Things I Need </a>
+    </h2>
+<p>The most commands I type are <code>cd</code>, <code>exa</code>, <code>rm</code>, <code>git ...</code>, <code>cargo ...</code>.
+I also type <code>mg</code>, which launches a GUI version of Emacs with Magit:</p>
+
+<figure>
+
+<img alt="" src="/assets/magit.png">
+</figure>
+<p>These tools make me productive.
+Keyboard-only input is fast and &ldquo;composable&rdquo; (I can press <kbd><kbd>up</kbd></kbd> to see previous commands, I can copy-paste paths, etc).
+Colored character-box based presentation is very clear and predictable, I can scan it very quickly.</p>
+
+<aside class="admn note">
+<i class="fa fa-info-circle"></i>
+<div><p>Take a second to appreciate how Magit interface manages to be both <strong>faster</strong> then command line flags (you don&rsquo;t have to type spaces and dashes) and infinitely more <strong><strong>discoverable</strong></strong>.
+It was Magit who taught me about <code>--force-with-lease</code>.</p>
+</div>
+</aside><p>However, there are serious gaps in the UX:</p>
+<ul>
+<li>
+<p><kbd><kbd>ctrl</kbd>+<kbd>c</kbd></kbd> doesn&rsquo;t work as it works in every other application.</p>
+</li>
+<li>
+<p>I launch GUI version of Emacs: the terminal one changes some keybindings, which is confusing to me.
+For example, I have splits inside emacs, and inside my terminal as well, and I just get confused as to which shortcut I should use.</p>
+</li>
+<li>
+<p>The output of programs is colored with escaped codes, which are horrible, and not flexible enough.
+When my Rust program panics and prints that it failed in <code>my_crate::foo::bar</code> function, I want this to be a hyperlink to the source code of the function.
+I want to <code>cat</code> images and PDFs in my terminal (and html, obviously).</p>
+</li>
+<li>
+<p>My workflow after I&rsquo;ve done a bunch of changes is:</p>
+<ol>
+<li>
+type <code>cargo test</code> to launch tests
+</li>
+<li>
+type <kbd><kbd>ctrl</kbd>+<kbd>shift</kbd>+<kbd>Enter</kbd></kbd> to split the terminal
+</li>
+<li>
+type <code>git status</code> or <code>mg</code> in the split to start making a commit in parallel to testing
+</li>
+</ol>
+</li>
+</ul>
+<p>The last step is crazy!</p>
+<p>Like, <code>cargo test</code> is being run by my shell (fish), the split is handled by the terminal emulator (kitty), which launches a fresh instance of fish and arranges the working directory to be saved.</p>
+<p>As a user, I don&rsquo;t care about this terminal/terminal emulator/shell split.
+I want to launch a program, and just type commands.
+Why <code>cargo test</code> blocks my input?
+Why can&rsquo;t I type <code>cargo test</code>, <kbd><kbd>Enter</kbd></kbd>, <code>exa -l</code>, <kbd><kbd>Enter</kbd></kbd> and have this program to automatically create the split?</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-title function_">$</span> cargo test</code>
+<code><span class="hl-output">...</span></code>
+<code><span class="hl-output">tons of output in progress</span></code>
+<code><span class="hl-output">...</span></code>
+<code><span class="hl-output"></span></code>
+<code><span class="hl-comment"># -- split (healed once `cargo test` finishes) -- #</span></code>
+<code><span class="hl-output"></span></code>
+<code><span class="hl-title function_">$</span> ls</code>
+<code><span class="hl-output">foo.txt</span></code>
+<code><span class="hl-output">bar.rs</span></code>
+<code><span class="hl-output"></span></code>
+<code><span class="hl-title function_">$</span> git ...</code></pre>
+
+</figure>
+<p>Additionally, while <code>magit</code> awesome, I want an option to use such interface for <strong><strong>all</strong></strong> my utilities.
+Like, for <a href="https://xkcd.com/1168/"><code>tar</code></a>?
+And, when I type <code>cargo test --package</code>, I really want completion for the set of packages which are available in the current directory.</p>
+</section>
+<section id="New-Shell">
+
+    <h2>
+    <a href="#New-Shell">New Shell </a>
+    </h2>
+<p>What I really want is an <strong><strong>extensible application container</strong></strong>, a-la Emacs or Eclipse, but focused for a shell use-case.
+It could look like this:</p>
+<ul>
+<li>
+A GUI application (which draws using raw OpenGL: we won&rsquo;t be using native OS GUI widgets).
+</li>
+<li>
+A UI framework for text-based UIs, using magit as a model. <kbd><kbd>ctrl</kbd>+<kbd>c</kbd></kbd>, <kbd><kbd>ctrl</kbd>+<kbd>v</kbd></kbd> and friends should work as expected.
+</li>
+<li>
+A tilling frame management, again, like the one in Emacs (and golden-ratio should be default).
+</li>
+<li>
+Some concept of process-let, which can occupy a frame.
+</li>
+<li>
+A prompt, which is <strong><strong>always</strong></strong> available, and smartly (without blocking, splitting screen if necessary) spawns new processlets.
+</li>
+<li>
+An API to let processlets interact with text UI.
+</li>
+<li>
+A plugin system for in-process processlets (obviously, plugins should be implemented in WASM).
+</li>
+<li>
+A plugin marketplace (versions, dependencies, lockfile, backwards compatibility).
+</li>
+<li>
+A plugin system for out-of-process processlets (JSON over stdio?).
+</li>
+<li>
+A backwards compatibility wrapper to treat usual Unix utilities as processlets.
+</li>
+</ul>
+</section>
+<section id="Emacs">
+
+    <h2>
+    <a href="#Emacs">Emacs? </a>
+    </h2>
+<p>Isn&rsquo;t it Emacs that I am trying to describe?
+Well, sort-of.
+Emacs is definitely in the same class of &ldquo;application containers&rdquo;, but it has some severe problems, in my opinion:</p>
+<ul>
+<li>
+Emacs Lisp is far from the best possible language for writing extensions.
+</li>
+<li>
+Plugin ecosystem is not really dependable.
+</li>
+<li>
+It doesn&rsquo;t define out-of-process plugin API (things like hyperlinking output).
+</li>
+<li>
+Async support is somewhere between non-existent and awkward.
+</li>
+<li>
+Its main focus is text editing.
+</li>
+<li>
+Its defaults are not really great (fish shell is a great project to learn from here).
+</li>
+<li>
+<kbd><kbd>ctrl</kbd>+<kbd>c</kbd></kbd>, <kbd><kbd>ctrl</kbd>+<kbd>v</kbd></kbd> do not work by default, <kbd><kbd>M-x</kbd></kbd> is not really remappable.
+</li>
+</ul>
+</section>
+<section id="Random-Closing-Thoughts">
+
+    <h2>
+    <a href="#Random-Closing-Thoughts">Random Closing Thoughts </a>
+    </h2>
+<p>This post contains the best plugin diagram ever:</p>
+<p><a href="https://www.tedinski.com/2018/01/30/the-one-ring-problem-abstraction-and-power.html">https://www.tedinski.com/2018/01/30/the-one-ring-problem-abstraction-and-power.html</a></p>
+<p>This talk echoes similar sentiments:</p>
+<p><a href="https://www.destroyallsoftware.com/talks/a-whole-new-world">https://www.destroyallsoftware.com/talks/a-whole-new-world</a></p>
+<p>If you build some like this, please sign me up!</p>
+</section>
+<section id="Addendum-2020-03-27">
+
+    <h2>
+    <a href="#Addendum-2020-03-27">Addendum (2020-03-27) </a>
+    </h2>
+<p>A &ldquo;terminals are a mess&rdquo; story from today.
+I wanted &ldquo;kill other split&rdquo; shortcut shortcut for my terminal, bound to <kbd><kbd>ctrl</kbd>+<kbd>k, 1</kbd></kbd>.
+Implementing it was easy, as kitty has a nice plugin API.
+After that I&rsquo;ve realized that I need to remap <code>kill_line</code> from <kbd><kbd>ctrl</kbd>+<kbd>k</kbd></kbd> to <kbd><kbd>ctrl</kbd>+<kbd>shift</kbd>+<kbd>k</kbd></kbd>, so that it doesn&rsquo;t conflict with the <kbd><kbd>ctrl</kbd>+<kbd>k, 1</kbd></kbd> chord.
+It took me a while to realize that searching for <code>kill_line</code> in kitty is futile &mdash; editing is handled by the shell.
+Ok, so it looks like I can just remap the key in fish, by <code>bind \cK kill_line</code>, except that, no, <kbd><kbd>ctrl</kbd></kbd> shortcuts do not work with <kbd><kbd>Shift</kbd></kbd> because of some obscure terminal limitation.
+So, let&rsquo;s go back to kitty and add a <kbd><kbd>ctrl</kbd>+<kbd>shift</kbd>+<kbd>k</kbd></kbd> shortcut that sends <code>^k</code> to the fish!
+<a href="https://github.com/matklad/config/commit/fa1bbcb1813242a571f3aba44f7d986db45ef7cc">An hour wasted</a>.</p>
+</section>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2019-11-16-a-better-shell.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

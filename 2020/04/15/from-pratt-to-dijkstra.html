@@ -1,0 +1,1240 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>From Pratt to Dijkstra</title>
+  <meta name="description" content="This is a sequel to the previous post about Pratt parsing.
+Here, we'll study the relationship between top-down operator precedence (Pratt parsing) and the more famous shunting yard algorithm.
+Spoiler: they are the same algorithm, the difference is implementation style with recursion (Pratt) or a manual stack (Dijkstra).">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2020/04/15/from-pratt-to-dijkstra.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#From-Pratt-to-Dijkstra">From Pratt to Dijkstra <time datetime="2020-04-15">Apr 15, 2020</time></a>
+    </h1>
+<p>This is a sequel to the <a href="/2020/04/13/simple-but-powerful-pratt-parsing">previous post</a> about Pratt parsing.
+Here, we&rsquo;ll study the relationship between top-down operator precedence (Pratt parsing) and the more famous shunting yard algorithm.
+Spoiler: they are the same algorithm, the difference is implementation style with recursion (Pratt) or a manual stack (Dijkstra).</p>
+<p>Unlike the previous educational post, this one is going to be an excruciatingly boring pile of technicalities &mdash; we&rsquo;ll just slowly and mechanically refactor our way to victory.
+Specifically,</p>
+<ol>
+<li>
+We start with refactoring Pratt parser to minimize control flow variations.
+</li>
+<li>
+Then, having arrived at the code with only one <code>return</code> and only one recursive call, we replace recursion with an explicit stack.
+</li>
+<li>
+Finally, we streamline control in the iterative version.
+</li>
+<li>
+At this point, we have a bona fide shunting yard algorithm.
+</li>
+</ol>
+<p>To further reveal the connection, we further verify that the original recursive and the iterative formulation produce syntax nodes in the same order.</p>
+<p>Really, the most exciting bit about this post is the conclusion, and you already know it :)</p>
+<section id="Starting-Point">
+
+    <h2>
+    <a href="#Starting-Point">Starting Point </a>
+    </h2>
+<p>Last time, we&rsquo;ve ended up with the following code:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">enum</span> <span class="hl-title class_">S</span> {</code>
+<code>    <span class="hl-title function_ invoke__">Atom</span>(<span class="hl-type">char</span>),</code>
+<code>    <span class="hl-title function_ invoke__">Cons</span>(<span class="hl-type">char</span>, <span class="hl-type">Vec</span>&lt;S&gt;),</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span> <span class="hl-title class_">fmt</span>::Display <span class="hl-keyword">for</span> <span class="hl-title class_">S</span> {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">fmt</span>(&amp;<span class="hl-keyword">self</span>, f: &amp;<span class="hl-keyword">mut</span> fmt::Formatter&lt;<span class="hl-symbol">&#x27;_</span>&gt;) <span class="hl-punctuation">-&gt;</span> fmt::<span class="hl-type">Result</span> {</code>
+<code>        <span class="hl-keyword">match</span> <span class="hl-keyword">self</span> {</code>
+<code>            S::<span class="hl-title function_ invoke__">Atom</span>(i) =&gt; <span class="hl-built_in">write!</span>(f, <span class="hl-string">&quot;{}&quot;</span>, i),</code>
+<code>            S::<span class="hl-title function_ invoke__">Cons</span>(head, rest) =&gt; {</code>
+<code>                <span class="hl-built_in">write!</span>(f, <span class="hl-string">&quot;({}&quot;</span>, head)?;</code>
+<code>                <span class="hl-keyword">for</span> <span class="hl-variable">s</span> <span class="hl-keyword">in</span> rest {</code>
+<code>                    <span class="hl-built_in">write!</span>(f, <span class="hl-string">&quot; {}&quot;</span>, s)?</code>
+<code>                }</code>
+<code>                <span class="hl-built_in">write!</span>(f, <span class="hl-string">&quot;)&quot;</span>)</code>
+<code>            }</code>
+<code>        }</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-meta">#[derive(Debug, Clone, Copy, PartialEq, Eq)]</span></code>
+<code><span class="hl-keyword">enum</span> <span class="hl-title class_">Token</span> {</code>
+<code>    <span class="hl-title function_ invoke__">Atom</span>(<span class="hl-type">char</span>),</code>
+<code>    <span class="hl-title function_ invoke__">Op</span>(<span class="hl-type">char</span>),</code>
+<code>    Eof,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">Lexer</span> {</code>
+<code>    tokens: <span class="hl-type">Vec</span>&lt;Token&gt;,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span> <span class="hl-title class_">Lexer</span> {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>(input: &amp;<span class="hl-type">str</span>) <span class="hl-punctuation">-&gt;</span> Lexer {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">tokens</span> = input</code>
+<code>            .<span class="hl-title function_ invoke__">chars</span>()</code>
+<code>            .<span class="hl-title function_ invoke__">filter</span>(|it| !it.<span class="hl-title function_ invoke__">is_ascii_whitespace</span>())</code>
+<code>            .<span class="hl-title function_ invoke__">map</span>(|c| <span class="hl-keyword">match</span> c {</code>
+<code>                <span class="hl-string">&#x27;0&#x27;</span>..=<span class="hl-string">&#x27;9&#x27;</span></code>
+<code>                | <span class="hl-string">&#x27;a&#x27;</span>..=<span class="hl-string">&#x27;z&#x27;</span> | <span class="hl-string">&#x27;A&#x27;</span>..=<span class="hl-string">&#x27;Z&#x27;</span> =&gt; Token::<span class="hl-title function_ invoke__">Atom</span>(c),</code>
+<code>                _ =&gt; Token::<span class="hl-title function_ invoke__">Op</span>(c),</code>
+<code>            })</code>
+<code>            .collect::&lt;<span class="hl-type">Vec</span>&lt;_&gt;&gt;();</code>
+<code>        tokens.<span class="hl-title function_ invoke__">reverse</span>();</code>
+<code>        Lexer { tokens }</code>
+<code>    }</code>
+<code></code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">next</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>) <span class="hl-punctuation">-&gt;</span> Token {</code>
+<code>        <span class="hl-keyword">self</span>.tokens.<span class="hl-title function_ invoke__">pop</span>().<span class="hl-title function_ invoke__">unwrap_or</span>(Token::Eof)</code>
+<code>    }</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">peek</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>) <span class="hl-punctuation">-&gt;</span> Token {</code>
+<code>        <span class="hl-keyword">self</span>.tokens.<span class="hl-title function_ invoke__">last</span>().<span class="hl-title function_ invoke__">copied</span>().<span class="hl-title function_ invoke__">unwrap_or</span>(Token::Eof)</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">expr</span>(input: &amp;<span class="hl-type">str</span>) <span class="hl-punctuation">-&gt;</span> S {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">lexer</span> = Lexer::<span class="hl-title function_ invoke__">new</span>(input);</code>
+<code>    <span class="hl-title function_ invoke__">expr_bp</span>(&amp;<span class="hl-keyword">mut</span> lexer, <span class="hl-number">0</span>)</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">expr_bp</span>(lexer: &amp;<span class="hl-keyword">mut</span> Lexer, min_bp: <span class="hl-type">u8</span>) <span class="hl-punctuation">-&gt;</span> S {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">lhs</span> = <span class="hl-keyword">match</span> lexer.<span class="hl-title function_ invoke__">next</span>() {</code>
+<code>        Token::<span class="hl-title function_ invoke__">Atom</span>(it) =&gt; S::<span class="hl-title function_ invoke__">Atom</span>(it),</code>
+<code>        Token::<span class="hl-title function_ invoke__">Op</span>(<span class="hl-string">&#x27;(&#x27;</span>) =&gt; {</code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">lhs</span> = <span class="hl-title function_ invoke__">expr_bp</span>(lexer, <span class="hl-number">0</span>);</code>
+<code>            <span class="hl-built_in">assert_eq!</span>(lexer.<span class="hl-title function_ invoke__">next</span>(), Token::<span class="hl-title function_ invoke__">Op</span>(<span class="hl-string">&#x27;)&#x27;</span>));</code>
+<code>            lhs</code>
+<code>        }</code>
+<code>        Token::<span class="hl-title function_ invoke__">Op</span>(op) =&gt; {</code>
+<code>            <span class="hl-keyword">let</span> ((), r_bp) = <span class="hl-title function_ invoke__">prefix_binding_power</span>(op);</code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">rhs</span> = <span class="hl-title function_ invoke__">expr_bp</span>(lexer, r_bp);</code>
+<code>            S::<span class="hl-title function_ invoke__">Cons</span>(op, <span class="hl-built_in">vec!</span>[rhs])</code>
+<code>        }</code>
+<code>        t =&gt; <span class="hl-built_in">panic!</span>(<span class="hl-string">&quot;bad token: {:?}&quot;</span>, t),</code>
+<code>    };</code>
+<code></code>
+<code>    <span class="hl-keyword">loop</span> {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">op</span> = <span class="hl-keyword">match</span> lexer.<span class="hl-title function_ invoke__">peek</span>() {</code>
+<code>            Token::Eof =&gt; <span class="hl-keyword">break</span>,</code>
+<code>            Token::<span class="hl-title function_ invoke__">Op</span>(op) =&gt; op,</code>
+<code>            t =&gt; <span class="hl-built_in">panic!</span>(<span class="hl-string">&quot;bad token: {:?}&quot;</span>, t),</code>
+<code>        };</code>
+<code></code>
+<code>        <span class="hl-keyword">if</span> <span class="hl-keyword">let</span> <span class="hl-variable">Some</span>((l_bp, ())) = <span class="hl-title function_ invoke__">postfix_binding_power</span>(op) {</code>
+<code>            <span class="hl-keyword">if</span> l_bp &lt; min_bp {</code>
+<code>                <span class="hl-keyword">break</span>;</code>
+<code>            }</code>
+<code>            lexer.<span class="hl-title function_ invoke__">next</span>();</code>
+<code></code>
+<code>            lhs = <span class="hl-keyword">if</span> op == <span class="hl-string">&#x27;[&#x27;</span> {</code>
+<code>                <span class="hl-keyword">let</span> <span class="hl-variable">rhs</span> = <span class="hl-title function_ invoke__">expr_bp</span>(lexer, <span class="hl-number">0</span>);</code>
+<code>                <span class="hl-built_in">assert_eq!</span>(lexer.<span class="hl-title function_ invoke__">next</span>(), Token::<span class="hl-title function_ invoke__">Op</span>(<span class="hl-string">&#x27;]&#x27;</span>));</code>
+<code>                S::<span class="hl-title function_ invoke__">Cons</span>(op, <span class="hl-built_in">vec!</span>[lhs, rhs])</code>
+<code>            } <span class="hl-keyword">else</span> {</code>
+<code>                S::<span class="hl-title function_ invoke__">Cons</span>(op, <span class="hl-built_in">vec!</span>[lhs])</code>
+<code>            };</code>
+<code>            <span class="hl-keyword">continue</span>;</code>
+<code>        }</code>
+<code></code>
+<code>        <span class="hl-keyword">if</span> <span class="hl-keyword">let</span> <span class="hl-variable">Some</span>((l_bp, r_bp)) = <span class="hl-title function_ invoke__">infix_binding_power</span>(op) {</code>
+<code>            <span class="hl-keyword">if</span> l_bp &lt; min_bp {</code>
+<code>                <span class="hl-keyword">break</span>;</code>
+<code>            }</code>
+<code>            lexer.<span class="hl-title function_ invoke__">next</span>();</code>
+<code></code>
+<code>            lhs = <span class="hl-keyword">if</span> op == <span class="hl-string">&#x27;?&#x27;</span> {</code>
+<code>                <span class="hl-keyword">let</span> <span class="hl-variable">mhs</span> = <span class="hl-title function_ invoke__">expr_bp</span>(lexer, <span class="hl-number">0</span>);</code>
+<code>                <span class="hl-built_in">assert_eq!</span>(lexer.<span class="hl-title function_ invoke__">next</span>(), Token::<span class="hl-title function_ invoke__">Op</span>(<span class="hl-string">&#x27;:&#x27;</span>));</code>
+<code>                <span class="hl-keyword">let</span> <span class="hl-variable">rhs</span> = <span class="hl-title function_ invoke__">expr_bp</span>(lexer, r_bp);</code>
+<code>                S::<span class="hl-title function_ invoke__">Cons</span>(op, <span class="hl-built_in">vec!</span>[lhs, mhs, rhs])</code>
+<code>            } <span class="hl-keyword">else</span> {</code>
+<code>                <span class="hl-keyword">let</span> <span class="hl-variable">rhs</span> = <span class="hl-title function_ invoke__">expr_bp</span>(lexer, r_bp);</code>
+<code>                S::<span class="hl-title function_ invoke__">Cons</span>(op, <span class="hl-built_in">vec!</span>[lhs, rhs])</code>
+<code>            };</code>
+<code>            <span class="hl-keyword">continue</span>;</code>
+<code>        }</code>
+<code></code>
+<code>        <span class="hl-keyword">break</span>;</code>
+<code>    }</code>
+<code></code>
+<code>    lhs</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">prefix_binding_power</span>(op: <span class="hl-type">char</span>) <span class="hl-punctuation">-&gt;</span> ((), <span class="hl-type">u8</span>) {</code>
+<code>    <span class="hl-keyword">match</span> op {</code>
+<code>        <span class="hl-string">&#x27;+&#x27;</span> | <span class="hl-string">&#x27;-&#x27;</span> =&gt; ((), <span class="hl-number">9</span>),</code>
+<code>        _ =&gt; <span class="hl-built_in">panic!</span>(<span class="hl-string">&quot;bad op: {:?}&quot;</span>, op),</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">postfix_binding_power</span>(op: <span class="hl-type">char</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;(<span class="hl-type">u8</span>, ())&gt; {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">res</span> = <span class="hl-keyword">match</span> op {</code>
+<code>        <span class="hl-string">&#x27;!&#x27;</span> =&gt; (<span class="hl-number">11</span>, ()),</code>
+<code>        <span class="hl-string">&#x27;[&#x27;</span> =&gt; (<span class="hl-number">11</span>, ()),</code>
+<code>        _ =&gt; <span class="hl-keyword">return</span> <span class="hl-literal">None</span>,</code>
+<code>    };</code>
+<code>    <span class="hl-title function_ invoke__">Some</span>(res)</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">infix_binding_power</span>(op: <span class="hl-type">char</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;(<span class="hl-type">u8</span>, <span class="hl-type">u8</span>)&gt; {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">res</span> = <span class="hl-keyword">match</span> op {</code>
+<code>        <span class="hl-string">&#x27;=&#x27;</span> =&gt; (<span class="hl-number">2</span>, <span class="hl-number">1</span>),</code>
+<code>        <span class="hl-string">&#x27;?&#x27;</span> =&gt; (<span class="hl-number">4</span>, <span class="hl-number">3</span>),</code>
+<code>        <span class="hl-string">&#x27;+&#x27;</span> | <span class="hl-string">&#x27;-&#x27;</span> =&gt; (<span class="hl-number">5</span>, <span class="hl-number">6</span>),</code>
+<code>        <span class="hl-string">&#x27;*&#x27;</span> | <span class="hl-string">&#x27;/&#x27;</span> =&gt; (<span class="hl-number">7</span>, <span class="hl-number">8</span>),</code>
+<code>        <span class="hl-string">&#x27;.&#x27;</span> =&gt; (<span class="hl-number">14</span>, <span class="hl-number">13</span>),</code>
+<code>        _ =&gt; <span class="hl-keyword">return</span> <span class="hl-literal">None</span>,</code>
+<code>    };</code>
+<code>    <span class="hl-title function_ invoke__">Some</span>(res)</code>
+<code>}</code></pre>
+
+</figure>
+<p>First, to not completely drown in minutia, we&rsquo;ll simplify it by removing support for indexing operator <code>[]</code> and ternary operator <code>?:</code>.
+We will keep parenthesis, left and right associative operators, and the unary minus (which is somewhat tricky to handle in shunting yard).
+So this is our starting point:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">expr_bp</span>(lexer: &amp;<span class="hl-keyword">mut</span> Lexer, min_bp: <span class="hl-type">u8</span>) <span class="hl-punctuation">-&gt;</span> S {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">lhs</span> = <span class="hl-keyword">match</span> lexer.<span class="hl-title function_ invoke__">next</span>() {</code>
+<code>        Token::<span class="hl-title function_ invoke__">Atom</span>(it) =&gt; S::<span class="hl-title function_ invoke__">Atom</span>(it),</code>
+<code>        Token::<span class="hl-title function_ invoke__">Op</span>(<span class="hl-string">&#x27;(&#x27;</span>) =&gt; {</code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">lhs</span> = <span class="hl-title function_ invoke__">expr_bp</span>(lexer, <span class="hl-number">0</span>);</code>
+<code>            <span class="hl-built_in">assert_eq!</span>(lexer.<span class="hl-title function_ invoke__">next</span>(), Token::<span class="hl-title function_ invoke__">Op</span>(<span class="hl-string">&#x27;)&#x27;</span>));</code>
+<code>            lhs</code>
+<code>        }</code>
+<code>        Token::<span class="hl-title function_ invoke__">Op</span>(op) =&gt; {</code>
+<code>            <span class="hl-keyword">let</span> ((), r_bp) = <span class="hl-title function_ invoke__">prefix_binding_power</span>(op);</code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">rhs</span> = <span class="hl-title function_ invoke__">expr_bp</span>(lexer, r_bp);</code>
+<code>            S::<span class="hl-title function_ invoke__">Cons</span>(op, <span class="hl-built_in">vec!</span>[rhs])</code>
+<code>        }</code>
+<code>        t =&gt; <span class="hl-built_in">panic!</span>(<span class="hl-string">&quot;bad token: {:?}&quot;</span>, t),</code>
+<code>    };</code>
+<code></code>
+<code>    <span class="hl-keyword">loop</span> {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">op</span> = <span class="hl-keyword">match</span> lexer.<span class="hl-title function_ invoke__">peek</span>() {</code>
+<code>            Token::Eof =&gt; <span class="hl-keyword">break</span>,</code>
+<code>            Token::<span class="hl-title function_ invoke__">Op</span>(op) =&gt; op,</code>
+<code>            t =&gt; <span class="hl-built_in">panic!</span>(<span class="hl-string">&quot;bad token: {:?}&quot;</span>, t),</code>
+<code>        };</code>
+<code></code>
+<code>        <span class="hl-keyword">if</span> <span class="hl-keyword">let</span> <span class="hl-variable">Some</span>((l_bp, ())) = <span class="hl-title function_ invoke__">postfix_binding_power</span>(op) {</code>
+<code>            <span class="hl-keyword">if</span> l_bp &lt; min_bp {</code>
+<code>                <span class="hl-keyword">break</span>;</code>
+<code>            }</code>
+<code>            lexer.<span class="hl-title function_ invoke__">next</span>();</code>
+<code></code>
+<code>            lhs = S::<span class="hl-title function_ invoke__">Cons</span>(op, <span class="hl-built_in">vec!</span>[lhs]);</code>
+<code>            <span class="hl-keyword">continue</span>;</code>
+<code>        }</code>
+<code></code>
+<code>        <span class="hl-keyword">if</span> <span class="hl-keyword">let</span> <span class="hl-variable">Some</span>((l_bp, r_bp)) = <span class="hl-title function_ invoke__">infix_binding_power</span>(op) {</code>
+<code>            <span class="hl-keyword">if</span> l_bp &lt; min_bp {</code>
+<code>                <span class="hl-keyword">break</span>;</code>
+<code>            }</code>
+<code>            lexer.<span class="hl-title function_ invoke__">next</span>();</code>
+<code></code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">rhs</span> = <span class="hl-title function_ invoke__">expr_bp</span>(lexer, r_bp);</code>
+<code>            lhs = S::<span class="hl-title function_ invoke__">Cons</span>(op, <span class="hl-built_in">vec!</span>[lhs, rhs]);</code>
+<code>            <span class="hl-keyword">continue</span>;</code>
+<code>        }</code>
+<code></code>
+<code>        <span class="hl-keyword">break</span>;</code>
+<code>    }</code>
+<code></code>
+<code>    lhs</code>
+<code>}</code></pre>
+
+</figure>
+<p>What I like about this code is how up-front it is about all special cases and control flow.
+This is a &ldquo;shameless green&rdquo; code!
+However, it is clear that we have a bunch of duplication between prefix, infix and postfix operators.
+Our first step would be to simplify the control flow to its core.</p>
+</section>
+<section id="Minimization">
+
+    <h2>
+    <a href="#Minimization">Minimization </a>
+    </h2>
+<p>First, let&rsquo;s merge postfix and infix cases, as they are almost the same.
+The idea is to change priorities for <code>!</code> from <code>(11, ())</code> to <code>(11, 100)</code>, where <code>100</code> is a special, very strong priority, which means that the right hand side of a &ldquo;binary&rdquo; operator is empty.
+We&rsquo;ll handle this in a pretty crude way right now, but all the hacks would go away once we refactor the rest.</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">expr_bp</span>(lexer: &amp;<span class="hl-keyword">mut</span> Lexer, min_bp: <span class="hl-type">u8</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;S&gt; {</code>
+<code>    <span class="hl-keyword">if</span> min_bp == <span class="hl-number">100</span> {</code>
+<code>        <span class="hl-keyword">return</span> <span class="hl-literal">None</span>;</code>
+<code>    }</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">lhs</span> = <span class="hl-keyword">match</span> lexer.<span class="hl-title function_ invoke__">next</span>() {</code>
+<code>        Token::<span class="hl-title function_ invoke__">Atom</span>(it) =&gt; S::<span class="hl-title function_ invoke__">Atom</span>(it),</code>
+<code>        Token::<span class="hl-title function_ invoke__">Op</span>(<span class="hl-string">&#x27;(&#x27;</span>) =&gt; {</code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">lhs</span> = <span class="hl-title function_ invoke__">expr_bp</span>(lexer, <span class="hl-number">0</span>).<span class="hl-title function_ invoke__">unwrap</span>();</code>
+<code>            <span class="hl-built_in">assert_eq!</span>(lexer.<span class="hl-title function_ invoke__">next</span>(), Token::<span class="hl-title function_ invoke__">Op</span>(<span class="hl-string">&#x27;)&#x27;</span>));</code>
+<code>            lhs</code>
+<code>        }</code>
+<code>        Token::<span class="hl-title function_ invoke__">Op</span>(op) =&gt; {</code>
+<code>            <span class="hl-keyword">let</span> ((), r_bp) = <span class="hl-title function_ invoke__">prefix_binding_power</span>(op);</code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">rhs</span> = <span class="hl-title function_ invoke__">expr_bp</span>(lexer, r_bp).<span class="hl-title function_ invoke__">unwrap</span>();</code>
+<code>            S::<span class="hl-title function_ invoke__">Cons</span>(op, <span class="hl-built_in">vec!</span>[rhs])</code>
+<code>        }</code>
+<code>        t =&gt; <span class="hl-built_in">panic!</span>(<span class="hl-string">&quot;bad token: {:?}&quot;</span>, t),</code>
+<code>    };</code>
+<code></code>
+<code>    <span class="hl-keyword">loop</span> {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">op</span> = <span class="hl-keyword">match</span> lexer.<span class="hl-title function_ invoke__">peek</span>() {</code>
+<code>            Token::Eof =&gt; <span class="hl-keyword">break</span>,</code>
+<code>            Token::<span class="hl-title function_ invoke__">Op</span>(op) =&gt; op,</code>
+<code>            t =&gt; <span class="hl-built_in">panic!</span>(<span class="hl-string">&quot;bad token: {:?}&quot;</span>, t),</code>
+<code>        };</code>
+<code></code>
+<code>        <span class="hl-keyword">if</span> <span class="hl-keyword">let</span> <span class="hl-variable">Some</span>((l_bp, r_bp)) = <span class="hl-title function_ invoke__">infix_binding_power</span>(op) {</code>
+<code>            <span class="hl-keyword">if</span> l_bp &lt; min_bp {</code>
+<code>                <span class="hl-keyword">break</span>;</code>
+<code>            }</code>
+<code>            lexer.<span class="hl-title function_ invoke__">next</span>();</code>
+<code></code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">rhs</span> = <span class="hl-title function_ invoke__">expr_bp</span>(lexer, r_bp);</code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">args</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>            args.<span class="hl-title function_ invoke__">push</span>(lhs);</code>
+<code>            args.<span class="hl-title function_ invoke__">extend</span>(rhs);</code>
+<code>            lhs = S::<span class="hl-title function_ invoke__">Cons</span>(op, args);</code>
+<code>            <span class="hl-keyword">continue</span>;</code>
+<code>        }</code>
+<code></code>
+<code>        <span class="hl-keyword">break</span>;</code>
+<code>    }</code>
+<code></code>
+<code>    <span class="hl-title function_ invoke__">Some</span>(lhs)</code>
+<code>}</code></pre>
+
+</figure>
+<p>Yup, we just check for hard-coded <code>100</code> constant and use a bunch of unwraps all over the place.
+But the code is already smaller.</p>
+<p>Let&rsquo;s apply the same treatment for prefix operators.
+We&rsquo;ll need to move their handing into the loop, and we also need to make <code>lhs</code> optional, which is now not a big deal, as the function as a whole returns an <code>Option</code>.
+On a happier note, this will allow us to remove the <code>if 100</code> wart.
+What&rsquo;s more problematic is handing priorities: minus has different binding powers depending on whether it is in an infix or a prefix position.
+We solve this problem by just adding an <code>prefix: bool</code> argument to the <code>binding_power</code> function.</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">expr_bp</span>(lexer: &amp;<span class="hl-keyword">mut</span> Lexer, min_bp: <span class="hl-type">u8</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;S&gt; {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">lhs</span> = <span class="hl-keyword">match</span> lexer.<span class="hl-title function_ invoke__">peek</span>() {</code>
+<code>        Token::<span class="hl-title function_ invoke__">Atom</span>(it) =&gt; {</code>
+<code>            lexer.<span class="hl-title function_ invoke__">next</span>();</code>
+<code>            <span class="hl-title function_ invoke__">Some</span>(S::<span class="hl-title function_ invoke__">Atom</span>(it))</code>
+<code>        }</code>
+<code>        Token::<span class="hl-title function_ invoke__">Op</span>(<span class="hl-string">&#x27;(&#x27;</span>) =&gt; {</code>
+<code>            lexer.<span class="hl-title function_ invoke__">next</span>();</code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">lhs</span> = <span class="hl-title function_ invoke__">expr_bp</span>(lexer, <span class="hl-number">0</span>).<span class="hl-title function_ invoke__">unwrap</span>();</code>
+<code>            <span class="hl-built_in">assert_eq!</span>(lexer.<span class="hl-title function_ invoke__">next</span>(), Token::<span class="hl-title function_ invoke__">Op</span>(<span class="hl-string">&#x27;)&#x27;</span>));</code>
+<code>            <span class="hl-title function_ invoke__">Some</span>(lhs)</code>
+<code>        }</code>
+<code>        _ =&gt; <span class="hl-literal">None</span>,</code>
+<code>    };</code>
+<code></code>
+<code>    <span class="hl-keyword">loop</span> {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">op</span> = <span class="hl-keyword">match</span> lexer.<span class="hl-title function_ invoke__">peek</span>() {</code>
+<code>            Token::Eof =&gt; <span class="hl-keyword">break</span>,</code>
+<code>            Token::<span class="hl-title function_ invoke__">Op</span>(op) =&gt; op,</code>
+<code>            t =&gt; <span class="hl-built_in">panic!</span>(<span class="hl-string">&quot;bad token: {:?}&quot;</span>, t),</code>
+<code>        };</code>
+<code></code>
+<code>        <span class="hl-keyword">if</span> <span class="hl-keyword">let</span> <span class="hl-variable">Some</span>((l_bp, r_bp)) =</code>
+<code>            <span class="hl-title function_ invoke__">binding_power</span>(op, lhs.<span class="hl-title function_ invoke__">is_none</span>())</code>
+<code>        {</code>
+<code>            <span class="hl-keyword">if</span> l_bp &lt; min_bp {</code>
+<code>                <span class="hl-keyword">break</span>;</code>
+<code>            }</code>
+<code>            lexer.<span class="hl-title function_ invoke__">next</span>();</code>
+<code></code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">rhs</span> = <span class="hl-title function_ invoke__">expr_bp</span>(lexer, r_bp);</code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">args</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>            args.<span class="hl-title function_ invoke__">extend</span>(lhs);</code>
+<code>            args.<span class="hl-title function_ invoke__">extend</span>(rhs);</code>
+<code>            lhs = <span class="hl-title function_ invoke__">Some</span>(S::<span class="hl-title function_ invoke__">Cons</span>(op, args));</code>
+<code>            <span class="hl-keyword">continue</span>;</code>
+<code>        }</code>
+<code></code>
+<code>        <span class="hl-keyword">break</span>;</code>
+<code>    }</code>
+<code></code>
+<code>    lhs</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">binding_power</span>(op: <span class="hl-type">char</span>, prefix: <span class="hl-type">bool</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;(<span class="hl-type">u8</span>, <span class="hl-type">u8</span>)&gt; {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">res</span> = <span class="hl-keyword">match</span> op {</code>
+<code>        <span class="hl-string">&#x27;=&#x27;</span> =&gt; (<span class="hl-number">2</span>, <span class="hl-number">1</span>),</code>
+<code>        <span class="hl-string">&#x27;+&#x27;</span> | <span class="hl-string">&#x27;-&#x27;</span> <span class="hl-keyword">if</span> prefix =&gt; (<span class="hl-number">99</span>, <span class="hl-number">9</span>),</code>
+<code>        <span class="hl-string">&#x27;+&#x27;</span> | <span class="hl-string">&#x27;-&#x27;</span> =&gt; (<span class="hl-number">5</span>, <span class="hl-number">6</span>),</code>
+<code>        <span class="hl-string">&#x27;*&#x27;</span> | <span class="hl-string">&#x27;/&#x27;</span> =&gt; (<span class="hl-number">7</span>, <span class="hl-number">8</span>),</code>
+<code>        <span class="hl-string">&#x27;!&#x27;</span> =&gt; (<span class="hl-number">11</span>, <span class="hl-number">100</span>),</code>
+<code>        <span class="hl-string">&#x27;.&#x27;</span> =&gt; (<span class="hl-number">14</span>, <span class="hl-number">13</span>),</code>
+<code>        _ =&gt; <span class="hl-keyword">return</span> <span class="hl-literal">None</span>,</code>
+<code>    };</code>
+<code>    <span class="hl-title function_ invoke__">Some</span>(res)</code>
+<code>}</code></pre>
+
+</figure>
+<p>Keen readers might have noticed that we use <code>99</code> and not <code>100</code> here for &ldquo;no operand&rdquo; case.
+This is not important yet, but will be during the next step.</p>
+<p>We&rsquo;ve unified prefix, infix and postfix operators.
+The next logical step is to treat atoms as nullary operators!
+That is, we&rsquo;ll parse <code>92</code> into <code>(92)</code> S-expression, with <code>None</code> for both <code>lhs</code> and <code>rhs</code>.
+We get this by using <code>(99, 100)</code> binding power.
+At this stage, we can get rid of distinction between atom tokens and operator tokens, and make the lexer return underlying <code>char</code>&rsquo;s directly.
+We&rsquo;ll also get rid of <code>S::Atom</code>, which gives us this somewhat large change:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">enum</span> <span class="hl-title class_">S</span> {</code>
+<code>    <span class="hl-title function_ invoke__">Cons</span>(<span class="hl-type">char</span>, <span class="hl-type">Vec</span>&lt;S&gt;),</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span> <span class="hl-title class_">fmt</span>::Display <span class="hl-keyword">for</span> <span class="hl-title class_">S</span> {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">fmt</span>(&amp;<span class="hl-keyword">self</span>, f: &amp;<span class="hl-keyword">mut</span> fmt::Formatter&lt;<span class="hl-symbol">&#x27;_</span>&gt;) <span class="hl-punctuation">-&gt;</span> fmt::<span class="hl-type">Result</span> {</code>
+<code>        <span class="hl-keyword">match</span> <span class="hl-keyword">self</span> {</code>
+<code>            S::<span class="hl-title function_ invoke__">Cons</span>(head, rest) =&gt; {</code>
+<code>                <span class="hl-keyword">if</span> rest.<span class="hl-title function_ invoke__">is_empty</span>() {</code>
+<code>                    <span class="hl-built_in">write!</span>(f, <span class="hl-string">&quot;{}&quot;</span>, head)</code>
+<code>                } <span class="hl-keyword">else</span> {</code>
+<code>                    <span class="hl-built_in">write!</span>(f, <span class="hl-string">&quot;({}&quot;</span>, head)?;</code>
+<code>                    <span class="hl-keyword">for</span> <span class="hl-variable">s</span> <span class="hl-keyword">in</span> rest {</code>
+<code>                        <span class="hl-built_in">write!</span>(f, <span class="hl-string">&quot; {}&quot;</span>, s)?</code>
+<code>                    }</code>
+<code>                    <span class="hl-built_in">write!</span>(f, <span class="hl-string">&quot;)&quot;</span>)</code>
+<code>                }</code>
+<code>            }</code>
+<code>        }</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">Lexer</span> {</code>
+<code>    tokens: <span class="hl-type">Vec</span>&lt;<span class="hl-type">char</span>&gt;,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span> <span class="hl-title class_">Lexer</span> {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>(input: &amp;<span class="hl-type">str</span>) <span class="hl-punctuation">-&gt;</span> Lexer {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">tokens</span> = input</code>
+<code>            .<span class="hl-title function_ invoke__">chars</span>()</code>
+<code>            .<span class="hl-title function_ invoke__">filter</span>(|it| !it.<span class="hl-title function_ invoke__">is_ascii_whitespace</span>())</code>
+<code>            .collect::&lt;<span class="hl-type">Vec</span>&lt;_&gt;&gt;();</code>
+<code>        tokens.<span class="hl-title function_ invoke__">reverse</span>();</code>
+<code>        Lexer { tokens }</code>
+<code>    }</code>
+<code></code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">next</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;<span class="hl-type">char</span>&gt; {</code>
+<code>        <span class="hl-keyword">self</span>.tokens.<span class="hl-title function_ invoke__">pop</span>()</code>
+<code>    }</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">peek</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;<span class="hl-type">char</span>&gt; {</code>
+<code>        <span class="hl-keyword">self</span>.tokens.<span class="hl-title function_ invoke__">last</span>().<span class="hl-title function_ invoke__">copied</span>()</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">expr</span>(input: &amp;<span class="hl-type">str</span>) <span class="hl-punctuation">-&gt;</span> S {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">lexer</span> = Lexer::<span class="hl-title function_ invoke__">new</span>(input);</code>
+<code>    <span class="hl-title function_ invoke__">expr_bp</span>(&amp;<span class="hl-keyword">mut</span> lexer, <span class="hl-number">0</span>).<span class="hl-title function_ invoke__">unwrap</span>()</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">expr_bp</span>(lexer: &amp;<span class="hl-keyword">mut</span> Lexer, min_bp: <span class="hl-type">u8</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;S&gt; {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">lhs</span> = <span class="hl-keyword">match</span> lexer.<span class="hl-title function_ invoke__">peek</span>() {</code>
+<code>        <span class="hl-title function_ invoke__">Some</span>(<span class="hl-string">&#x27;(&#x27;</span>) =&gt; {</code>
+<code>            lexer.<span class="hl-title function_ invoke__">next</span>();</code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">lhs</span> = <span class="hl-title function_ invoke__">expr_bp</span>(lexer, <span class="hl-number">0</span>).<span class="hl-title function_ invoke__">unwrap</span>();</code>
+<code>            <span class="hl-built_in">assert_eq!</span>(lexer.<span class="hl-title function_ invoke__">next</span>(), <span class="hl-title function_ invoke__">Some</span>(<span class="hl-string">&#x27;)&#x27;</span>));</code>
+<code>            <span class="hl-title function_ invoke__">Some</span>(lhs)</code>
+<code>        }</code>
+<code>        _ =&gt; <span class="hl-literal">None</span>,</code>
+<code>    };</code>
+<code></code>
+<code>    <span class="hl-keyword">loop</span> {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">token</span> = <span class="hl-keyword">match</span> lexer.<span class="hl-title function_ invoke__">peek</span>() {</code>
+<code>            <span class="hl-title function_ invoke__">Some</span>(token) =&gt; token,</code>
+<code>            <span class="hl-literal">None</span> =&gt; <span class="hl-keyword">break</span>,</code>
+<code>        };</code>
+<code></code>
+<code>        <span class="hl-keyword">if</span> <span class="hl-keyword">let</span> <span class="hl-variable">Some</span>((l_bp, r_bp)) =</code>
+<code>            <span class="hl-title function_ invoke__">binding_power</span>(token, lhs.<span class="hl-title function_ invoke__">is_none</span>())</code>
+<code>        {</code>
+<code>            <span class="hl-keyword">if</span> l_bp &lt; min_bp {</code>
+<code>                <span class="hl-keyword">break</span>;</code>
+<code>            }</code>
+<code>            lexer.<span class="hl-title function_ invoke__">next</span>();</code>
+<code></code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">rhs</span> = <span class="hl-title function_ invoke__">expr_bp</span>(lexer, r_bp);</code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">args</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>            args.<span class="hl-title function_ invoke__">extend</span>(lhs);</code>
+<code>            args.<span class="hl-title function_ invoke__">extend</span>(rhs);</code>
+<code>            lhs = <span class="hl-title function_ invoke__">Some</span>(S::<span class="hl-title function_ invoke__">Cons</span>(token, args));</code>
+<code>            <span class="hl-keyword">continue</span>;</code>
+<code>        }</code>
+<code></code>
+<code>        <span class="hl-keyword">break</span>;</code>
+<code>    }</code>
+<code></code>
+<code>    lhs</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">binding_power</span>(op: <span class="hl-type">char</span>, prefix: <span class="hl-type">bool</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;(<span class="hl-type">u8</span>, <span class="hl-type">u8</span>)&gt; {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">res</span> = <span class="hl-keyword">match</span> op {</code>
+<code>        <span class="hl-string">&#x27;0&#x27;</span>..=<span class="hl-string">&#x27;9&#x27;</span> | <span class="hl-string">&#x27;a&#x27;</span>..=<span class="hl-string">&#x27;z&#x27;</span> | <span class="hl-string">&#x27;A&#x27;</span>..=<span class="hl-string">&#x27;Z&#x27;</span> =&gt; (<span class="hl-number">99</span>, <span class="hl-number">100</span>),</code>
+<code>        <span class="hl-string">&#x27;=&#x27;</span> =&gt; (<span class="hl-number">2</span>, <span class="hl-number">1</span>),</code>
+<code>        <span class="hl-string">&#x27;+&#x27;</span> | <span class="hl-string">&#x27;-&#x27;</span> <span class="hl-keyword">if</span> prefix =&gt; (<span class="hl-number">99</span>, <span class="hl-number">9</span>),</code>
+<code>        <span class="hl-string">&#x27;+&#x27;</span> | <span class="hl-string">&#x27;-&#x27;</span> =&gt; (<span class="hl-number">5</span>, <span class="hl-number">6</span>),</code>
+<code>        <span class="hl-string">&#x27;*&#x27;</span> | <span class="hl-string">&#x27;/&#x27;</span> =&gt; (<span class="hl-number">7</span>, <span class="hl-number">8</span>),</code>
+<code>        <span class="hl-string">&#x27;!&#x27;</span> =&gt; (<span class="hl-number">11</span>, <span class="hl-number">100</span>),</code>
+<code>        <span class="hl-string">&#x27;.&#x27;</span> =&gt; (<span class="hl-number">14</span>, <span class="hl-number">13</span>),</code>
+<code>        _ =&gt; <span class="hl-keyword">return</span> <span class="hl-literal">None</span>,</code>
+<code>    };</code>
+<code>    <span class="hl-title function_ invoke__">Some</span>(res)</code>
+<code>}</code></pre>
+
+</figure>
+<p>This is the stage where it becomes important that &ldquo;fake&rdquo; binding power of unary <code>-</code> is <code>99</code>.
+After parsing first constant in <code>1 - 2</code> the <code>r_bp</code> is <code>100</code>, and we need to avoid eating the following minus.</p>
+<p>The only thing left outside the main loop are parenthesis.
+We can deal with them using <code>(99, 0)</code> priority &mdash; after <code>(</code> we enter a new context where all operators are allowed.</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">expr_bp</span>(lexer: &amp;<span class="hl-keyword">mut</span> Lexer, min_bp: <span class="hl-type">u8</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;S&gt; {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">lhs</span> = <span class="hl-literal">None</span>;</code>
+<code></code>
+<code>    <span class="hl-keyword">loop</span> {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">token</span> = <span class="hl-keyword">match</span> lexer.<span class="hl-title function_ invoke__">peek</span>() {</code>
+<code>            <span class="hl-title function_ invoke__">Some</span>(token) =&gt; token,</code>
+<code>            <span class="hl-literal">None</span> =&gt; <span class="hl-keyword">break</span>,</code>
+<code>        };</code>
+<code></code>
+<code>        <span class="hl-keyword">if</span> <span class="hl-keyword">let</span> <span class="hl-variable">Some</span>((l_bp, r_bp)) =</code>
+<code>            <span class="hl-title function_ invoke__">binding_power</span>(token, lhs.<span class="hl-title function_ invoke__">is_none</span>())</code>
+<code>        {</code>
+<code>            <span class="hl-keyword">if</span> l_bp &lt; min_bp {</code>
+<code>                <span class="hl-keyword">break</span>;</code>
+<code>            }</code>
+<code>            lexer.<span class="hl-title function_ invoke__">next</span>();</code>
+<code></code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">rhs</span> = <span class="hl-title function_ invoke__">expr_bp</span>(lexer, r_bp);</code>
+<code>            <span class="hl-keyword">if</span> token == <span class="hl-string">&#x27;(&#x27;</span> {</code>
+<code>                <span class="hl-built_in">assert_eq!</span>(lexer.<span class="hl-title function_ invoke__">next</span>(), <span class="hl-title function_ invoke__">Some</span>(<span class="hl-string">&#x27;)&#x27;</span>));</code>
+<code>                lhs = rhs;</code>
+<code>                <span class="hl-keyword">continue</span>;</code>
+<code>            }</code>
+<code></code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">args</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>            args.<span class="hl-title function_ invoke__">extend</span>(lhs);</code>
+<code>            args.<span class="hl-title function_ invoke__">extend</span>(rhs);</code>
+<code>            lhs = <span class="hl-title function_ invoke__">Some</span>(S::<span class="hl-title function_ invoke__">Cons</span>(token, args));</code>
+<code>            <span class="hl-keyword">continue</span>;</code>
+<code>        }</code>
+<code></code>
+<code>        <span class="hl-keyword">break</span>;</code>
+<code>    }</code>
+<code></code>
+<code>    lhs</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">binding_power</span>(op: <span class="hl-type">char</span>, prefix: <span class="hl-type">bool</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;(<span class="hl-type">u8</span>, <span class="hl-type">u8</span>)&gt; {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">res</span> = <span class="hl-keyword">match</span> op {</code>
+<code>        <span class="hl-string">&#x27;0&#x27;</span>..=<span class="hl-string">&#x27;9&#x27;</span> | <span class="hl-string">&#x27;a&#x27;</span>..=<span class="hl-string">&#x27;z&#x27;</span> | <span class="hl-string">&#x27;A&#x27;</span>..=<span class="hl-string">&#x27;Z&#x27;</span> =&gt; (<span class="hl-number">99</span>, <span class="hl-number">100</span>),</code>
+<code>        <span class="hl-string">&#x27;(&#x27;</span> =&gt; (<span class="hl-number">99</span>, <span class="hl-number">0</span>),</code>
+<code>        <span class="hl-string">&#x27;=&#x27;</span> =&gt; (<span class="hl-number">2</span>, <span class="hl-number">1</span>),</code>
+<code>        <span class="hl-string">&#x27;+&#x27;</span> | <span class="hl-string">&#x27;-&#x27;</span> <span class="hl-keyword">if</span> prefix =&gt; (<span class="hl-number">99</span>, <span class="hl-number">9</span>),</code>
+<code>        <span class="hl-string">&#x27;+&#x27;</span> | <span class="hl-string">&#x27;-&#x27;</span> =&gt; (<span class="hl-number">5</span>, <span class="hl-number">6</span>),</code>
+<code>        <span class="hl-string">&#x27;*&#x27;</span> | <span class="hl-string">&#x27;/&#x27;</span> =&gt; (<span class="hl-number">7</span>, <span class="hl-number">8</span>),</code>
+<code>        <span class="hl-string">&#x27;!&#x27;</span> =&gt; (<span class="hl-number">11</span>, <span class="hl-number">100</span>),</code>
+<code>        <span class="hl-string">&#x27;.&#x27;</span> =&gt; (<span class="hl-number">14</span>, <span class="hl-number">13</span>),</code>
+<code>        _ =&gt; <span class="hl-keyword">return</span> <span class="hl-literal">None</span>,</code>
+<code>    };</code>
+<code>    <span class="hl-title function_ invoke__">Some</span>(res)</code>
+<code>}</code></pre>
+
+</figure>
+<p>Or, after some control flow cleanup:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">expr_bp</span>(lexer: &amp;<span class="hl-keyword">mut</span> Lexer, min_bp: <span class="hl-type">u8</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;S&gt; {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">lhs</span> = <span class="hl-literal">None</span>;</code>
+<code></code>
+<code>    <span class="hl-keyword">loop</span> {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">token</span> = <span class="hl-keyword">match</span> lexer.<span class="hl-title function_ invoke__">peek</span>() {</code>
+<code>            <span class="hl-title function_ invoke__">Some</span>(token) =&gt; token,</code>
+<code>            <span class="hl-literal">None</span> =&gt; <span class="hl-keyword">return</span> lhs,</code>
+<code>        };</code>
+<code></code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">r_bp</span> = <span class="hl-keyword">match</span> <span class="hl-title function_ invoke__">binding_power</span>(token, lhs.<span class="hl-title function_ invoke__">is_none</span>()) {</code>
+<code>            <span class="hl-title function_ invoke__">Some</span>((l_bp, r_bp)) <span class="hl-keyword">if</span> min_bp &lt;= l_bp =&gt; r_bp,</code>
+<code>            _ =&gt; <span class="hl-keyword">return</span> lhs,</code>
+<code>        };</code>
+<code></code>
+<code>        lexer.<span class="hl-title function_ invoke__">next</span>();</code>
+<code></code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">rhs</span> = <span class="hl-title function_ invoke__">expr_bp</span>(lexer, r_bp);</code>
+<code>        <span class="hl-keyword">if</span> token == <span class="hl-string">&#x27;(&#x27;</span> {</code>
+<code>            <span class="hl-built_in">assert_eq!</span>(lexer.<span class="hl-title function_ invoke__">next</span>(), <span class="hl-title function_ invoke__">Some</span>(<span class="hl-string">&#x27;)&#x27;</span>));</code>
+<code>            lhs = rhs;</code>
+<code>            <span class="hl-keyword">continue</span>;</code>
+<code>        }</code>
+<code></code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">args</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>        args.<span class="hl-title function_ invoke__">extend</span>(lhs);</code>
+<code>        args.<span class="hl-title function_ invoke__">extend</span>(rhs);</code>
+<code>        lhs = <span class="hl-title function_ invoke__">Some</span>(S::<span class="hl-title function_ invoke__">Cons</span>(token, args));</code>
+<code>    }</code>
+<code>}</code></pre>
+
+</figure>
+<p>This is still recognizably a Pratt parse, with its characteristic shape</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">parse_expr</span>() {</code>
+<code>    <span class="hl-keyword">loop</span> {</code>
+<code>        ...</code>
+<code>        <span class="hl-title function_ invoke__">parse_expr</span>()</code>
+<code>        ...</code>
+<code>    }</code>
+<code>}</code></pre>
+
+</figure>
+<p>What we&rsquo;ll do next is mechanical replacement of recursion with a manual stack.</p>
+</section>
+<section id="From-Recursion-to-Stack">
+
+    <h2>
+    <a href="#From-Recursion-to-Stack">From Recursion to Stack </a>
+    </h2>
+<p>This is a general transformation and (I think) it can be done mechanically.
+The interesting bits during transformation are recursive calls themselves and returns.
+The underlying goal of the preceding refactorings was to reduce the number of recursive invocations to one.
+We still have two <code>return</code> statements there, so let&rsquo;s condense that to just one as well:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">expr_bp</span>(lexer: &amp;<span class="hl-keyword">mut</span> Lexer, min_bp: <span class="hl-type">u8</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;S&gt; {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">lhs</span> = <span class="hl-literal">None</span>;</code>
+<code></code>
+<code>    <span class="hl-keyword">loop</span> {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">token</span> = lexer.<span class="hl-title function_ invoke__">peek</span>();</code>
+<code>        <span class="hl-keyword">let</span> (token, r_bp) =</code>
+<code>            <span class="hl-keyword">match</span> <span class="hl-title function_ invoke__">binding_power</span>(token, lhs.<span class="hl-title function_ invoke__">is_none</span>()) {</code>
+<code>                <span class="hl-title function_ invoke__">Some</span>((t, (l_bp, r_bp))) <span class="hl-keyword">if</span> min_bp &lt;= l_bp =&gt; {</code>
+<code>                    (t, r_bp)</code>
+<code>                }</code>
+<code>                _ =&gt; <span class="hl-keyword">return</span> lhs,</code>
+<code>            };</code>
+<code></code>
+<code>        lexer.<span class="hl-title function_ invoke__">next</span>();</code>
+<code></code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">rhs</span> = <span class="hl-title function_ invoke__">expr_bp</span>(lexer, r_bp);</code>
+<code>        <span class="hl-keyword">if</span> token == <span class="hl-string">&#x27;(&#x27;</span> {</code>
+<code>            <span class="hl-built_in">assert_eq!</span>(lexer.<span class="hl-title function_ invoke__">next</span>(), <span class="hl-title function_ invoke__">Some</span>(<span class="hl-string">&#x27;)&#x27;</span>));</code>
+<code>            lhs = rhs;</code>
+<code>            <span class="hl-keyword">continue</span>;</code>
+<code>        }</code>
+<code></code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">args</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>        args.<span class="hl-title function_ invoke__">extend</span>(lhs);</code>
+<code>        args.<span class="hl-title function_ invoke__">extend</span>(rhs);</code>
+<code>        lhs = <span class="hl-title function_ invoke__">Some</span>(S::<span class="hl-title function_ invoke__">Cons</span>(token, args));</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">binding_power</span>(</code>
+<code>    op: <span class="hl-type">Option</span>&lt;<span class="hl-type">char</span>&gt;,</code>
+<code>    prefix: <span class="hl-type">bool</span>,</code>
+<code>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;(<span class="hl-type">char</span>, (<span class="hl-type">u8</span>, <span class="hl-type">u8</span>))&gt; {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">op</span> = op?;</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">res</span> = <span class="hl-keyword">match</span> op {</code>
+<code>        <span class="hl-string">&#x27;0&#x27;</span>..=<span class="hl-string">&#x27;9&#x27;</span> | <span class="hl-string">&#x27;a&#x27;</span>..=<span class="hl-string">&#x27;z&#x27;</span> | <span class="hl-string">&#x27;A&#x27;</span>..=<span class="hl-string">&#x27;Z&#x27;</span> =&gt; (<span class="hl-number">99</span>, <span class="hl-number">100</span>),</code>
+<code>        <span class="hl-string">&#x27;(&#x27;</span> =&gt; (<span class="hl-number">99</span>, <span class="hl-number">0</span>),</code>
+<code>        <span class="hl-string">&#x27;=&#x27;</span> =&gt; (<span class="hl-number">2</span>, <span class="hl-number">1</span>),</code>
+<code>        <span class="hl-string">&#x27;+&#x27;</span> | <span class="hl-string">&#x27;-&#x27;</span> <span class="hl-keyword">if</span> prefix =&gt; (<span class="hl-number">99</span>, <span class="hl-number">9</span>),</code>
+<code>        <span class="hl-string">&#x27;+&#x27;</span> | <span class="hl-string">&#x27;-&#x27;</span> =&gt; (<span class="hl-number">5</span>, <span class="hl-number">6</span>),</code>
+<code>        <span class="hl-string">&#x27;*&#x27;</span> | <span class="hl-string">&#x27;/&#x27;</span> =&gt; (<span class="hl-number">7</span>, <span class="hl-number">8</span>),</code>
+<code>        <span class="hl-string">&#x27;!&#x27;</span> =&gt; (<span class="hl-number">11</span>, <span class="hl-number">100</span>),</code>
+<code>        <span class="hl-string">&#x27;.&#x27;</span> =&gt; (<span class="hl-number">14</span>, <span class="hl-number">13</span>),</code>
+<code>        _ =&gt; <span class="hl-keyword">return</span> <span class="hl-literal">None</span>,</code>
+<code>    };</code>
+<code>    <span class="hl-title function_ invoke__">Some</span>((op, res))</code>
+<code>}</code></pre>
+
+</figure>
+<p>Next, we should reify locals which are live across the recursive call into a data structure.
+If there were more than one recursive call, we&rsquo;d have to reify control-flow as enum as well, but we&rsquo;ve prudently removed all but one recursive invocation.</p>
+<p>So let&rsquo;s start with introducing a <code>Frame</code> struct, without actually adding a stack just yet.</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Frame</span> {</code>
+<code>    min_bp: <span class="hl-type">u8</span>,</code>
+<code>    lhs: <span class="hl-type">Option</span>&lt;S&gt;,</code>
+<code>    token: <span class="hl-type">Option</span>&lt;<span class="hl-type">char</span>&gt;,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">expr_bp</span>(lexer: &amp;<span class="hl-keyword">mut</span> Lexer, min_bp: <span class="hl-type">u8</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;S&gt; {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">top</span> = Frame {</code>
+<code>        min_bp,</code>
+<code>        lhs: <span class="hl-literal">None</span>,</code>
+<code>        token: <span class="hl-literal">None</span>,</code>
+<code>    };</code>
+<code></code>
+<code>    <span class="hl-keyword">loop</span> {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">token</span> = lexer.<span class="hl-title function_ invoke__">peek</span>();</code>
+<code>        <span class="hl-keyword">let</span> (token, r_bp) =</code>
+<code>            <span class="hl-keyword">match</span> <span class="hl-title function_ invoke__">binding_power</span>(token, top.lhs.<span class="hl-title function_ invoke__">is_none</span>()) {</code>
+<code>                <span class="hl-title function_ invoke__">Some</span>((t, (l_bp, r_bp))) <span class="hl-keyword">if</span> top.min_bp &lt;= l_bp =&gt; {</code>
+<code>                    (t, r_bp)</code>
+<code>                }</code>
+<code>                _ =&gt; <span class="hl-keyword">return</span> top.lhs,</code>
+<code>            };</code>
+<code>        lexer.<span class="hl-title function_ invoke__">next</span>();</code>
+<code></code>
+<code>        top.token = <span class="hl-title function_ invoke__">Some</span>(token);</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">rhs</span> = <span class="hl-title function_ invoke__">expr_bp</span>(lexer, r_bp);</code>
+<code>        <span class="hl-keyword">if</span> token == <span class="hl-string">&#x27;(&#x27;</span> {</code>
+<code>            <span class="hl-built_in">assert_eq!</span>(lexer.<span class="hl-title function_ invoke__">next</span>(), <span class="hl-title function_ invoke__">Some</span>(<span class="hl-string">&#x27;)&#x27;</span>));</code>
+<code>            top.lhs = rhs;</code>
+<code>            <span class="hl-keyword">continue</span>;</code>
+<code>        }</code>
+<code></code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">args</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>        args.<span class="hl-title function_ invoke__">extend</span>(top.lhs);</code>
+<code>        args.<span class="hl-title function_ invoke__">extend</span>(rhs);</code>
+<code>        top.lhs = <span class="hl-title function_ invoke__">Some</span>(S::<span class="hl-title function_ invoke__">Cons</span>(token, args));</code>
+<code>    }</code>
+<code>}</code></pre>
+
+</figure>
+<p>And now, let&rsquo;s add a <code>stack: Vec&lt;Frame&gt;</code>.
+This is the point where the magic happens.
+We&rsquo;ll still keep the <code>top</code> local variable: representing a stack as <code>(T, Vec&lt;T&gt;)</code> and not as just <code>Vec&lt;T&gt;</code> gives us compile-time guarantee of non-emptiness.
+We replace the <code>expr_bp(lexer, r_bp)</code> recursive call with pushing to the stack.
+All operations after the call are moved after <code>return</code>.
+<code>return</code> itself is replaced with popping off the stack.</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">expr_bp</span>(lexer: &amp;<span class="hl-keyword">mut</span> Lexer) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;S&gt; {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">top</span> = Frame {</code>
+<code>        min_bp: <span class="hl-number">0</span>,</code>
+<code>        lhs: <span class="hl-literal">None</span>,</code>
+<code>        token: <span class="hl-literal">None</span>,</code>
+<code>    };</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">stack</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code></code>
+<code>    <span class="hl-keyword">loop</span> {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">token</span> = lexer.<span class="hl-title function_ invoke__">peek</span>();</code>
+<code>        <span class="hl-keyword">let</span> (token, r_bp) =</code>
+<code>            <span class="hl-keyword">match</span> <span class="hl-title function_ invoke__">binding_power</span>(token, top.lhs.<span class="hl-title function_ invoke__">is_none</span>()) {</code>
+<code>                <span class="hl-title function_ invoke__">Some</span>((t, (l_bp, r_bp))) <span class="hl-keyword">if</span> top.min_bp &lt;= l_bp =&gt; {</code>
+<code>                    (t, r_bp)</code>
+<code>                }</code>
+<code>                _ =&gt; {</code>
+<code>                    <span class="hl-keyword">let</span> <span class="hl-variable">res</span> = top;</code>
+<code>                    top = <span class="hl-keyword">match</span> stack.<span class="hl-title function_ invoke__">pop</span>() {</code>
+<code>                        <span class="hl-title function_ invoke__">Some</span>(it) =&gt; it,</code>
+<code>                        <span class="hl-literal">None</span> =&gt; <span class="hl-keyword">return</span> res.lhs,</code>
+<code>                    };</code>
+<code></code>
+<code>                    <span class="hl-keyword">if</span> res.token == <span class="hl-title function_ invoke__">Some</span>(<span class="hl-string">&#x27;(&#x27;</span>) {</code>
+<code>                        <span class="hl-built_in">assert_eq!</span>(lexer.<span class="hl-title function_ invoke__">next</span>(), <span class="hl-title function_ invoke__">Some</span>(<span class="hl-string">&#x27;)&#x27;</span>));</code>
+<code>                        top.lhs = res.lhs;</code>
+<code>                        <span class="hl-keyword">continue</span>;</code>
+<code>                    }</code>
+<code></code>
+<code>                    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">args</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>                    args.<span class="hl-title function_ invoke__">extend</span>(top.lhs);</code>
+<code>                    args.<span class="hl-title function_ invoke__">extend</span>(res.lhs);</code>
+<code>                    top.lhs =</code>
+<code>                        <span class="hl-title function_ invoke__">Some</span>(S::<span class="hl-title function_ invoke__">Cons</span>(res.token.<span class="hl-title function_ invoke__">unwrap</span>(), args));</code>
+<code>                    <span class="hl-keyword">continue</span>;</code>
+<code>                }</code>
+<code>            };</code>
+<code>        lexer.<span class="hl-title function_ invoke__">next</span>();</code>
+<code></code>
+<code>        stack.<span class="hl-title function_ invoke__">push</span>(top);</code>
+<code>        top = Frame {</code>
+<code>            min_bp: r_bp,</code>
+<code>            lhs: <span class="hl-literal">None</span>,</code>
+<code>            token: <span class="hl-title function_ invoke__">Some</span>(token),</code>
+<code>        };</code>
+<code>    }</code>
+<code>}</code></pre>
+
+</figure>
+<p>Tada! No recursion anymore, and still passes the tests!
+Let&rsquo;s cleanup this further though.
+First, let&rsquo;s treat <code>)</code> more like a usual operator.
+The correct binding powers here are the opposite of <code>(</code>: <code>(0, 100)</code>:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">expr_bp</span>(lexer: &amp;<span class="hl-keyword">mut</span> Lexer) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;S&gt; {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">top</span> = Frame {</code>
+<code>        min_bp: <span class="hl-number">0</span>,</code>
+<code>        lhs: <span class="hl-literal">None</span>,</code>
+<code>        token: <span class="hl-literal">None</span>,</code>
+<code>    };</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">stack</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code></code>
+<code>    <span class="hl-keyword">loop</span> {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">token</span> = lexer.<span class="hl-title function_ invoke__">peek</span>();</code>
+<code>        <span class="hl-keyword">let</span> (token, r_bp) =</code>
+<code>            <span class="hl-keyword">match</span> <span class="hl-title function_ invoke__">binding_power</span>(token, top.lhs.<span class="hl-title function_ invoke__">is_none</span>()) {</code>
+<code>                <span class="hl-title function_ invoke__">Some</span>((t, (l_bp, r_bp))) <span class="hl-keyword">if</span> top.min_bp &lt;= l_bp =&gt; {</code>
+<code>                    (t, r_bp)</code>
+<code>                }</code>
+<code>                _ =&gt; {</code>
+<code>                    <span class="hl-keyword">let</span> <span class="hl-variable">res</span> = top;</code>
+<code>                    top = <span class="hl-keyword">match</span> stack.<span class="hl-title function_ invoke__">pop</span>() {</code>
+<code>                        <span class="hl-title function_ invoke__">Some</span>(it) =&gt; it,</code>
+<code>                        <span class="hl-literal">None</span> =&gt; <span class="hl-keyword">return</span> res.lhs,</code>
+<code>                    };</code>
+<code></code>
+<code>                    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">args</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>                    args.<span class="hl-title function_ invoke__">extend</span>(top.lhs);</code>
+<code>                    args.<span class="hl-title function_ invoke__">extend</span>(res.lhs);</code>
+<code>                    top.lhs =</code>
+<code>                        <span class="hl-title function_ invoke__">Some</span>(S::<span class="hl-title function_ invoke__">Cons</span>(res.token.<span class="hl-title function_ invoke__">unwrap</span>(), args));</code>
+<code>                    <span class="hl-keyword">continue</span>;</code>
+<code>                }</code>
+<code>            };</code>
+<code>        lexer.<span class="hl-title function_ invoke__">next</span>();</code>
+<code>        <span class="hl-keyword">if</span> token == <span class="hl-string">&#x27;)&#x27;</span> {</code>
+<code>            <span class="hl-built_in">assert_eq!</span>(top.token, <span class="hl-title function_ invoke__">Some</span>(<span class="hl-string">&#x27;(&#x27;</span>));</code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">res</span> = top;</code>
+<code>            top = stack.<span class="hl-title function_ invoke__">pop</span>().<span class="hl-title function_ invoke__">unwrap</span>();</code>
+<code>            top.lhs = res.lhs;</code>
+<code>            <span class="hl-keyword">continue</span>;</code>
+<code>        }</code>
+<code></code>
+<code>        stack.<span class="hl-title function_ invoke__">push</span>(top);</code>
+<code>        top = Frame {</code>
+<code>            min_bp: r_bp,</code>
+<code>            lhs: <span class="hl-literal">None</span>,</code>
+<code>            token: <span class="hl-title function_ invoke__">Some</span>(token),</code>
+<code>        };</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">binding_power</span>(</code>
+<code>    op: <span class="hl-type">Option</span>&lt;<span class="hl-type">char</span>&gt;,</code>
+<code>    prefix: <span class="hl-type">bool</span>,</code>
+<code>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;(<span class="hl-type">char</span>, (<span class="hl-type">u8</span>, <span class="hl-type">u8</span>))&gt; {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">op</span> = op?;</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">res</span> = <span class="hl-keyword">match</span> op {</code>
+<code>        <span class="hl-string">&#x27;0&#x27;</span>..=<span class="hl-string">&#x27;9&#x27;</span> | <span class="hl-string">&#x27;a&#x27;</span>..=<span class="hl-string">&#x27;z&#x27;</span> | <span class="hl-string">&#x27;A&#x27;</span>..=<span class="hl-string">&#x27;Z&#x27;</span> =&gt; (<span class="hl-number">99</span>, <span class="hl-number">100</span>),</code>
+<code>        <span class="hl-string">&#x27;(&#x27;</span> =&gt; (<span class="hl-number">99</span>, <span class="hl-number">0</span>),</code>
+<code>        <span class="hl-string">&#x27;)&#x27;</span> =&gt; (<span class="hl-number">0</span>, <span class="hl-number">100</span>),</code>
+<code>        <span class="hl-string">&#x27;=&#x27;</span> =&gt; (<span class="hl-number">2</span>, <span class="hl-number">1</span>),</code>
+<code>        <span class="hl-string">&#x27;+&#x27;</span> | <span class="hl-string">&#x27;-&#x27;</span> <span class="hl-keyword">if</span> prefix =&gt; (<span class="hl-number">99</span>, <span class="hl-number">9</span>),</code>
+<code>        <span class="hl-string">&#x27;+&#x27;</span> | <span class="hl-string">&#x27;-&#x27;</span> =&gt; (<span class="hl-number">5</span>, <span class="hl-number">6</span>),</code>
+<code>        <span class="hl-string">&#x27;*&#x27;</span> | <span class="hl-string">&#x27;/&#x27;</span> =&gt; (<span class="hl-number">7</span>, <span class="hl-number">8</span>),</code>
+<code>        <span class="hl-string">&#x27;!&#x27;</span> =&gt; (<span class="hl-number">11</span>, <span class="hl-number">100</span>),</code>
+<code>        <span class="hl-string">&#x27;.&#x27;</span> =&gt; (<span class="hl-number">14</span>, <span class="hl-number">13</span>),</code>
+<code>        _ =&gt; <span class="hl-keyword">return</span> <span class="hl-literal">None</span>,</code>
+<code>    };</code>
+<code>    <span class="hl-title function_ invoke__">Some</span>((op, res))</code>
+<code>}</code></pre>
+
+</figure>
+<p>Finally, let&rsquo;s note that <code>continue</code> inside the <code>match</code> is somewhat wasteful &mdash; when we hit it, we&rsquo;ll re-<code>peek</code> the same token again.
+So let&rsquo;s repeat just the match until we know we can make progress.
+This also allows replacing <code>peek() / next()</code> pair with just <code>next()</code>.</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">expr_bp</span>(lexer: &amp;<span class="hl-keyword">mut</span> Lexer) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;S&gt; {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">top</span> = Frame {</code>
+<code>        min_bp: <span class="hl-number">0</span>,</code>
+<code>        lhs: <span class="hl-literal">None</span>,</code>
+<code>        token: <span class="hl-literal">None</span>,</code>
+<code>    };</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">stack</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code></code>
+<code>    <span class="hl-keyword">loop</span> {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">token</span> = lexer.<span class="hl-title function_ invoke__">next</span>();</code>
+<code>        <span class="hl-keyword">let</span> (token, r_bp) = <span class="hl-keyword">loop</span> {</code>
+<code>            <span class="hl-keyword">match</span> <span class="hl-title function_ invoke__">binding_power</span>(token, top.lhs.<span class="hl-title function_ invoke__">is_none</span>()) {</code>
+<code>                <span class="hl-title function_ invoke__">Some</span>((t, (l_bp, r_bp))) <span class="hl-keyword">if</span> top.min_bp &lt;= l_bp =&gt; {</code>
+<code>                    <span class="hl-title function_ invoke__">break</span> (t, r_bp)</code>
+<code>                }</code>
+<code>                _ =&gt; {</code>
+<code>                    <span class="hl-keyword">let</span> <span class="hl-variable">res</span> = top;</code>
+<code>                    top = <span class="hl-keyword">match</span> stack.<span class="hl-title function_ invoke__">pop</span>() {</code>
+<code>                        <span class="hl-title function_ invoke__">Some</span>(it) =&gt; it,</code>
+<code>                        <span class="hl-literal">None</span> =&gt; <span class="hl-keyword">return</span> res.lhs,</code>
+<code>                    };</code>
+<code></code>
+<code>                    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">args</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>                    args.<span class="hl-title function_ invoke__">extend</span>(top.lhs);</code>
+<code>                    args.<span class="hl-title function_ invoke__">extend</span>(res.lhs);</code>
+<code>                    top.lhs =</code>
+<code>                        <span class="hl-title function_ invoke__">Some</span>(S::<span class="hl-title function_ invoke__">Cons</span>(res.token.<span class="hl-title function_ invoke__">unwrap</span>(), args));</code>
+<code>                }</code>
+<code>            };</code>
+<code>        };</code>
+<code></code>
+<code>        <span class="hl-keyword">if</span> token == <span class="hl-string">&#x27;)&#x27;</span> {</code>
+<code>            <span class="hl-built_in">assert_eq!</span>(top.token, <span class="hl-title function_ invoke__">Some</span>(<span class="hl-string">&#x27;(&#x27;</span>));</code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">res</span> = top;</code>
+<code>            top = stack.<span class="hl-title function_ invoke__">pop</span>().<span class="hl-title function_ invoke__">unwrap</span>();</code>
+<code>            top.lhs = res.lhs;</code>
+<code>            <span class="hl-keyword">continue</span>;</code>
+<code>        }</code>
+<code></code>
+<code>        stack.<span class="hl-title function_ invoke__">push</span>(top);</code>
+<code>        top = Frame {</code>
+<code>            min_bp: r_bp,</code>
+<code>            lhs: <span class="hl-literal">None</span>,</code>
+<code>            token: <span class="hl-title function_ invoke__">Some</span>(token),</code>
+<code>        };</code>
+<code>    }</code>
+<code>}</code></pre>
+
+</figure>
+<p>And guess what? This is the shunting yard algorithm, with <em>its</em> characteristic shape of</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">loop</span> {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">token</span> = <span class="hl-title function_ invoke__">next_token</span>();</code>
+<code>    <span class="hl-keyword">while</span> stack.top.priority &gt; token.priority {</code>
+<code>        stack.<span class="hl-title function_ invoke__">pop</span>()</code>
+<code>    }</code>
+<code>}</code></pre>
+
+</figure>
+<p>To drive the point home, let&rsquo;s print the tokens we pop off the stack, to verify that we get reverse Polish notation without any kind of additional tree rearrangement, just like in the original algorithm description:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">use</span> std::{fmt, io::BufRead};</code>
+<code></code>
+<code><span class="hl-keyword">enum</span> <span class="hl-title class_">S</span> {</code>
+<code>    <span class="hl-title function_ invoke__">Cons</span>(<span class="hl-type">char</span>, <span class="hl-type">Vec</span>&lt;S&gt;),</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span> <span class="hl-title class_">fmt</span>::Display <span class="hl-keyword">for</span> <span class="hl-title class_">S</span> {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">fmt</span>(&amp;<span class="hl-keyword">self</span>, f: &amp;<span class="hl-keyword">mut</span> fmt::Formatter&lt;<span class="hl-symbol">&#x27;_</span>&gt;) <span class="hl-punctuation">-&gt;</span> fmt::<span class="hl-type">Result</span> {</code>
+<code>        <span class="hl-keyword">match</span> <span class="hl-keyword">self</span> {</code>
+<code>            S::<span class="hl-title function_ invoke__">Cons</span>(head, rest) =&gt; {</code>
+<code>                <span class="hl-keyword">if</span> rest.<span class="hl-title function_ invoke__">is_empty</span>() {</code>
+<code>                    <span class="hl-built_in">write!</span>(f, <span class="hl-string">&quot;{}&quot;</span>, head)</code>
+<code>                } <span class="hl-keyword">else</span> {</code>
+<code>                    <span class="hl-built_in">write!</span>(f, <span class="hl-string">&quot;({}&quot;</span>, head)?;</code>
+<code>                    <span class="hl-keyword">for</span> <span class="hl-variable">s</span> <span class="hl-keyword">in</span> rest {</code>
+<code>                        <span class="hl-built_in">write!</span>(f, <span class="hl-string">&quot; {}&quot;</span>, s)?</code>
+<code>                    }</code>
+<code>                    <span class="hl-built_in">write!</span>(f, <span class="hl-string">&quot;)&quot;</span>)</code>
+<code>                }</code>
+<code>            }</code>
+<code>        }</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">Lexer</span> {</code>
+<code>    tokens: <span class="hl-type">Vec</span>&lt;<span class="hl-type">char</span>&gt;,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span> <span class="hl-title class_">Lexer</span> {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>(input: &amp;<span class="hl-type">str</span>) <span class="hl-punctuation">-&gt;</span> Lexer {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">tokens</span> = input</code>
+<code>            .<span class="hl-title function_ invoke__">chars</span>()</code>
+<code>            .<span class="hl-title function_ invoke__">filter</span>(|it| !it.<span class="hl-title function_ invoke__">is_ascii_whitespace</span>())</code>
+<code>            .collect::&lt;<span class="hl-type">Vec</span>&lt;_&gt;&gt;();</code>
+<code>        tokens.<span class="hl-title function_ invoke__">reverse</span>();</code>
+<code>        Lexer { tokens }</code>
+<code>    }</code>
+<code></code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">next</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;<span class="hl-type">char</span>&gt; {</code>
+<code>        <span class="hl-keyword">self</span>.tokens.<span class="hl-title function_ invoke__">pop</span>()</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">expr</span>(input: &amp;<span class="hl-type">str</span>) <span class="hl-punctuation">-&gt;</span> S {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">lexer</span> = Lexer::<span class="hl-title function_ invoke__">new</span>(input);</code>
+<code>    eprintln!(<span class="hl-string">&quot;{}&quot;</span>, input);</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">res</span> = <span class="hl-title function_ invoke__">expr_bp</span>(&amp;<span class="hl-keyword">mut</span> lexer).<span class="hl-title function_ invoke__">unwrap</span>();</code>
+<code>    eprintln!(<span class="hl-string">&quot;{}\n&quot;</span>, res);</code>
+<code>    res</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">Frame</span> {</code>
+<code>    min_bp: <span class="hl-type">u8</span>,</code>
+<code>    lhs: <span class="hl-type">Option</span>&lt;S&gt;,</code>
+<code>    token: <span class="hl-type">Option</span>&lt;<span class="hl-type">char</span>&gt;,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">expr_bp</span>(lexer: &amp;<span class="hl-keyword">mut</span> Lexer) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;S&gt; {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">top</span> = Frame {</code>
+<code>        min_bp: <span class="hl-number">0</span>,</code>
+<code>        lhs: <span class="hl-literal">None</span>,</code>
+<code>        token: <span class="hl-literal">None</span>,</code>
+<code>    };</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">stack</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code></code>
+<code>    <span class="hl-keyword">loop</span> {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">token</span> = lexer.<span class="hl-title function_ invoke__">next</span>();</code>
+<code>        <span class="hl-keyword">let</span> (token, r_bp) = <span class="hl-keyword">loop</span> {</code>
+<code>            <span class="hl-keyword">match</span> <span class="hl-title function_ invoke__">binding_power</span>(token, top.lhs.<span class="hl-title function_ invoke__">is_none</span>()) {</code>
+<code>                <span class="hl-title function_ invoke__">Some</span>((t, (l_bp, r_bp))) <span class="hl-keyword">if</span> top.min_bp &lt;= l_bp =&gt;{</code>
+<code>                    <span class="hl-title function_ invoke__">break</span> (t, r_bp)</code>
+<code>                }</code>
+<code>                _ =&gt; {</code>
+<code>                    <span class="hl-keyword">let</span> <span class="hl-variable">res</span> = top;</code>
+<code>                    top = <span class="hl-keyword">match</span> stack.<span class="hl-title function_ invoke__">pop</span>() {</code>
+<code>                        <span class="hl-title function_ invoke__">Some</span>(it) =&gt; it,</code>
+<code>                        <span class="hl-literal">None</span> =&gt; {</code>
+<code>                            eprintln!();</code>
+<code>                            <span class="hl-keyword">return</span> res.lhs;</code>
+<code>                        }</code>
+<code>                    };</code>
+<code></code>
+<code>                    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">args</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>                    args.<span class="hl-title function_ invoke__">extend</span>(top.lhs);</code>
+<code>                    args.<span class="hl-title function_ invoke__">extend</span>(res.lhs);</code>
+<code>                    <span class="hl-keyword">let</span> <span class="hl-variable">token</span> = res.token.<span class="hl-title function_ invoke__">unwrap</span>();</code>
+<code>                    eprint!(<span class="hl-string">&quot;{} &quot;</span>, token);</code>
+<code>                    top.lhs = <span class="hl-title function_ invoke__">Some</span>(S::<span class="hl-title function_ invoke__">Cons</span>(token, args));</code>
+<code>                }</code>
+<code>            };</code>
+<code>        };</code>
+<code></code>
+<code>        <span class="hl-keyword">if</span> token == <span class="hl-string">&#x27;)&#x27;</span> {</code>
+<code>            <span class="hl-built_in">assert_eq!</span>(top.token, <span class="hl-title function_ invoke__">Some</span>(<span class="hl-string">&#x27;(&#x27;</span>));</code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">res</span> = top;</code>
+<code>            top = stack.<span class="hl-title function_ invoke__">pop</span>().<span class="hl-title function_ invoke__">unwrap</span>();</code>
+<code>            top.lhs = res.lhs;</code>
+<code>            <span class="hl-keyword">continue</span>;</code>
+<code>        }</code>
+<code></code>
+<code>        stack.<span class="hl-title function_ invoke__">push</span>(top);</code>
+<code>        top = Frame {</code>
+<code>            min_bp: r_bp,</code>
+<code>            lhs: <span class="hl-literal">None</span>,</code>
+<code>            token: <span class="hl-title function_ invoke__">Some</span>(token),</code>
+<code>        };</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">binding_power</span>(</code>
+<code>    op: <span class="hl-type">Option</span>&lt;<span class="hl-type">char</span>&gt;,</code>
+<code>    prefix: <span class="hl-type">bool</span>,</code>
+<code>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;(<span class="hl-type">char</span>, (<span class="hl-type">u8</span>, <span class="hl-type">u8</span>))&gt; {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">op</span> = op?;</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">res</span> = <span class="hl-keyword">match</span> op {</code>
+<code>        <span class="hl-string">&#x27;0&#x27;</span>..=<span class="hl-string">&#x27;9&#x27;</span> | <span class="hl-string">&#x27;a&#x27;</span>..=<span class="hl-string">&#x27;z&#x27;</span> | <span class="hl-string">&#x27;A&#x27;</span>..=<span class="hl-string">&#x27;Z&#x27;</span> =&gt; (<span class="hl-number">99</span>, <span class="hl-number">100</span>),</code>
+<code>        <span class="hl-string">&#x27;(&#x27;</span> =&gt; (<span class="hl-number">99</span>, <span class="hl-number">0</span>),</code>
+<code>        <span class="hl-string">&#x27;)&#x27;</span> =&gt; (<span class="hl-number">0</span>, <span class="hl-number">100</span>),</code>
+<code>        <span class="hl-string">&#x27;=&#x27;</span> =&gt; (<span class="hl-number">2</span>, <span class="hl-number">1</span>),</code>
+<code>        <span class="hl-string">&#x27;+&#x27;</span> | <span class="hl-string">&#x27;-&#x27;</span> <span class="hl-keyword">if</span> prefix =&gt; (<span class="hl-number">99</span>, <span class="hl-number">9</span>),</code>
+<code>        <span class="hl-string">&#x27;+&#x27;</span> | <span class="hl-string">&#x27;-&#x27;</span> =&gt; (<span class="hl-number">5</span>, <span class="hl-number">6</span>),</code>
+<code>        <span class="hl-string">&#x27;*&#x27;</span> | <span class="hl-string">&#x27;/&#x27;</span> =&gt; (<span class="hl-number">7</span>, <span class="hl-number">8</span>),</code>
+<code>        <span class="hl-string">&#x27;!&#x27;</span> =&gt; (<span class="hl-number">11</span>, <span class="hl-number">100</span>),</code>
+<code>        <span class="hl-string">&#x27;.&#x27;</span> =&gt; (<span class="hl-number">14</span>, <span class="hl-number">13</span>),</code>
+<code>        _ =&gt; <span class="hl-keyword">return</span> <span class="hl-literal">None</span>,</code>
+<code>    };</code>
+<code>    <span class="hl-title function_ invoke__">Some</span>((op, res))</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-meta">#[test]</span></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">tests</span>() {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">s</span> = <span class="hl-title function_ invoke__">expr</span>(<span class="hl-string">&quot;1&quot;</span>);</code>
+<code>    <span class="hl-built_in">assert_eq!</span>(s.<span class="hl-title function_ invoke__">to_string</span>(), <span class="hl-string">&quot;1&quot;</span>);</code>
+<code></code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">s</span> = <span class="hl-title function_ invoke__">expr</span>(<span class="hl-string">&quot;1 + 2 * 3&quot;</span>);</code>
+<code>    <span class="hl-built_in">assert_eq!</span>(s.<span class="hl-title function_ invoke__">to_string</span>(), <span class="hl-string">&quot;(+ 1 (* 2 3))&quot;</span>);</code>
+<code></code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">s</span> = <span class="hl-title function_ invoke__">expr</span>(<span class="hl-string">&quot;a + b * c * d + e&quot;</span>);</code>
+<code>    <span class="hl-built_in">assert_eq!</span>(s.<span class="hl-title function_ invoke__">to_string</span>(), <span class="hl-string">&quot;(+ (+ a (* (* b c) d)) e)&quot;</span>);</code>
+<code></code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">s</span> = <span class="hl-title function_ invoke__">expr</span>(<span class="hl-string">&quot;f . g . h&quot;</span>);</code>
+<code>    <span class="hl-built_in">assert_eq!</span>(s.<span class="hl-title function_ invoke__">to_string</span>(), <span class="hl-string">&quot;(. f (. g h))&quot;</span>);</code>
+<code></code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">s</span> = <span class="hl-title function_ invoke__">expr</span>(<span class="hl-string">&quot; 1 + 2 + f . g . h * 3 * 4&quot;</span>);</code>
+<code>    <span class="hl-built_in">assert_eq!</span>(</code>
+<code>        s.<span class="hl-title function_ invoke__">to_string</span>(),</code>
+<code>        <span class="hl-string">&quot;(+ (+ 1 2) (* (* (. f (. g h)) 3) 4))&quot;</span></code>
+<code>    );</code>
+<code></code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">s</span> = <span class="hl-title function_ invoke__">expr</span>(<span class="hl-string">&quot;--1 * 2&quot;</span>);</code>
+<code>    <span class="hl-built_in">assert_eq!</span>(s.<span class="hl-title function_ invoke__">to_string</span>(), <span class="hl-string">&quot;(* (- (- 1)) 2)&quot;</span>);</code>
+<code></code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">s</span> = <span class="hl-title function_ invoke__">expr</span>(<span class="hl-string">&quot;--f . g&quot;</span>);</code>
+<code>    <span class="hl-built_in">assert_eq!</span>(s.<span class="hl-title function_ invoke__">to_string</span>(), <span class="hl-string">&quot;(- (- (. f g)))&quot;</span>);</code>
+<code></code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">s</span> = <span class="hl-title function_ invoke__">expr</span>(<span class="hl-string">&quot;-9!&quot;</span>);</code>
+<code>    <span class="hl-built_in">assert_eq!</span>(s.<span class="hl-title function_ invoke__">to_string</span>(), <span class="hl-string">&quot;(- (! 9))&quot;</span>);</code>
+<code></code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">s</span> = <span class="hl-title function_ invoke__">expr</span>(<span class="hl-string">&quot;f . g !&quot;</span>);</code>
+<code>    <span class="hl-built_in">assert_eq!</span>(s.<span class="hl-title function_ invoke__">to_string</span>(), <span class="hl-string">&quot;(! (. f g))&quot;</span>);</code>
+<code></code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">s</span> = <span class="hl-title function_ invoke__">expr</span>(<span class="hl-string">&quot;(((0)))&quot;</span>);</code>
+<code>    <span class="hl-built_in">assert_eq!</span>(s.<span class="hl-title function_ invoke__">to_string</span>(), <span class="hl-string">&quot;0&quot;</span>);</code>
+<code></code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">s</span> = <span class="hl-title function_ invoke__">expr</span>(<span class="hl-string">&quot;(1 + 2) * 3&quot;</span>);</code>
+<code>    <span class="hl-built_in">assert_eq!</span>(s.<span class="hl-title function_ invoke__">to_string</span>(), <span class="hl-string">&quot;(* (+ 1 2) 3)&quot;</span>);</code>
+<code></code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">s</span> = <span class="hl-title function_ invoke__">expr</span>(<span class="hl-string">&quot;1 + (2 * 3)&quot;</span>);</code>
+<code>    <span class="hl-built_in">assert_eq!</span>(s.<span class="hl-title function_ invoke__">to_string</span>(), <span class="hl-string">&quot;(+ 1 (* 2 3))&quot;</span>);</code>
+<code>}</code></pre>
+
+</figure>
+
+<figure class="code-block">
+
+
+<pre><code>1</code>
+<code>1</code>
+<code>1</code>
+<code></code>
+<code>1 + 2 * 3</code>
+<code>1 2 3 * +</code>
+<code>(+ 1 (* 2 3))</code>
+<code></code>
+<code>a + b * c * d + e</code>
+<code>a b c * d * + e +</code>
+<code>(+ (+ a (* (* b c) d)) e)</code>
+<code></code>
+<code>f . g . h</code>
+<code>f g h . .</code>
+<code>(. f (. g h))</code>
+<code></code>
+<code> 1 + 2 + f . g . h * 3 * 4</code>
+<code>1 2 + f g h . . 3 * 4 * +</code>
+<code>(+ (+ 1 2) (* (* (. f (. g h)) 3) 4))</code>
+<code></code>
+<code>--1 * 2</code>
+<code>1 - - 2 *</code>
+<code>(* (- (- 1)) 2)</code>
+<code></code>
+<code>--f . g</code>
+<code>f g . - -</code>
+<code>(- (- (. f g)))</code>
+<code></code>
+<code>-9!</code>
+<code>9 ! -</code>
+<code>(- (! 9))</code>
+<code></code>
+<code>f . g !</code>
+<code>f g . !</code>
+<code>(! (. f g))</code>
+<code></code>
+<code>(((0)))</code>
+<code>0</code>
+<code>0</code>
+<code></code>
+<code>(1 + 2) * 3</code>
+<code>1 2 + 3 *</code>
+<code>(* (+ 1 2) 3)</code>
+<code></code>
+<code>1 + (2 * 3)</code>
+<code>1 2 3 * +</code>
+<code>(+ 1 (* 2 3))</code></pre>
+
+</figure>
+<p>We actually could have done it with the original recursive formulation as well.
+Placing <code>print</code> statements at all points where we construct an <code>S</code> node prints expression in a reverse polish notation,
+proving that the recursive algorithm does the same steps and in the same order as the shunting yard.</p>
+<p>Q.E.D.</p>
+<p>The code from this and the previous article is available here: <a href="https://github.com/matklad/minipratt">https://github.com/matklad/minipratt</a>.</p>
+</section>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2020-04-15-from-pratt-to-dijkstra.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

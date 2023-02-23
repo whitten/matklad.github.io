@@ -1,0 +1,562 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Study of std::io::Error</title>
+  <meta name="description" content="In this article we'll dissect the implementation of std::io::Error type from the Rust's standard library.
+The code in question is here:
+library/std/src/io/error.rs.">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2020/10/15/study-of-std-io-error.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Study-of-std-io-Error">Study of std::io::Error <time datetime="2020-10-15">Oct 15, 2020</time></a>
+    </h1>
+<p>In this article we&rsquo;ll dissect the implementation of <code>std::io::Error</code> type from the Rust&rsquo;s standard library.
+The code in question is here:
+<a href="https://github.com/rust-lang/rust/blob/5565241f65cf402c3dbcb55dd492f172c473d4ce/library/std/src/io/error.rs">library/std/src/io/error.rs</a>.</p>
+<p>You can read this post as either of:</p>
+<ol>
+<li>
+A study of a specific bit of standard library.
+</li>
+<li>
+An advanced error management guide.
+</li>
+<li>
+A case of a beautiful API design.
+</li>
+</ol>
+<p>The article requires basic familiarity with Rust error handing.</p>
+<hr>
+<p>When designing an <code>Error</code> type for use with <code>Result&lt;T, E&gt;</code>, the main question to ask is &ldquo;how the error will be used?&rdquo;.
+Usually, one of the following is true.</p>
+<ul>
+<li>
+<p>The error is handled programmatically.
+The consumer inspects the error, so its internal structure needs to be exposed to a reasonable degree.</p>
+</li>
+<li>
+<p>The error is propagated and displayed to the user.
+The consumer doesn&rsquo;t inspect the error beyond the <code>fmt::Display</code>; so its internal structure can be encapsulated.</p>
+</li>
+</ul>
+<p>Note that there&rsquo;s a tension between exposing implementation details and encapsulating them. A common anti-pattern for implementing the first case is to define a kitchen-sink enum:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">enum</span> <span class="hl-title class_">Error</span> {</code>
+<code>  <span class="hl-title function_ invoke__">Tokio</span>(tokio::io::Error),</code>
+<code>  ConnectionDiscovery {</code>
+<code>    path: PathBuf,</code>
+<code>    reason: <span class="hl-type">String</span>,</code>
+<code>    stderr: <span class="hl-type">String</span>,</code>
+<code>  },</code>
+<code>  Deserialize {</code>
+<code>    source: serde_json::Error,</code>
+<code>    data: <span class="hl-type">String</span>,</code>
+<code>  },</code>
+<code>  ...,</code>
+<code>  <span class="hl-title function_ invoke__">Generic</span>(<span class="hl-type">String</span>),</code>
+<code>}</code></pre>
+
+</figure>
+<p>There is a number of problems with this approach.</p>
+<p><em>First</em>, exposing errors from underlying libraries makes them a part of your public API.
+Major semver bump in your dependency would require you to make a new major version as well.</p>
+<p><em>Second</em>, it sets all the implementation details in stone.
+For example, if you notice that the size of <code>ConnectionDiscovery</code> is huge, boxing this variant would be a breaking change.</p>
+<p><em>Third</em>, it is usually indicative of a larger design issue.
+Kitchen sink errors pack dissimilar failure modes into one type.
+But, if failure modes vary widely, it probably isn&rsquo;t reasonable to handle them!
+This is an indication that the situation looks more like the case two.</p>
+
+<aside class="block">
+
+<p>An often-working cure for error kitchensinkosis is the pattern of pushing errors to the caller.</p>
+<p>Consider this example</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">my_function</span>() <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Result</span>&lt;<span class="hl-type">i32</span>, MyError&gt; {</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">thing</span> = <span class="hl-title function_ invoke__">dep_function</span>()?;</code>
+<code>  ...</code>
+<code>  <span class="hl-title function_ invoke__">Ok</span>(<span class="hl-number">92</span>)</code>
+<code>}</code></pre>
+
+</figure>
+<p><code>my_function</code> calls <code>dep_function</code>, so <code>MyError</code> should be convertible from <code>DepError</code>.
+A better way to write the same might be this:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">my_function</span>(thing: DepThing) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Result</span>&lt;<span class="hl-type">i32</span>, MyError&gt; {</code>
+<code>  ...</code>
+<code>  <span class="hl-title function_ invoke__">Ok</span>(<span class="hl-number">92</span>)</code>
+<code>}</code></pre>
+
+</figure>
+<p>In this version, the caller is forced to invoke <code>dep_function</code> and handle its error.
+This exchanges more typing for more type-safety.
+<code>MyError</code> and <code>DepError</code> are now different types, and the caller can handle them separately.
+If <code>DepError</code> were a variant of <code>MyError</code> a runtime <code>match</code>-ing would be required.</p>
+<p>An extreme version of this idea is <a href="https://sans-io.readthedocs.io/">sans-io</a> programming.
+Most errors come from IO; if you push all IO to the caller, you can skip most of the error handing!</p>
+
+</aside>
+  <p>However bad the <code>enum</code> approach might be, it does achieve maximum inspectability of the first case.</p>
+<p>The propagation-centered second case of error management is typically handled by using a boxed trait object.
+A type like <code>Box&lt;dyn std::error::Error&gt;</code> can be constructed from any specific concrete error, can be printed via <code>Display</code>, and can still optionally expose the underlying error via dynamic downcasting.
+The <a href="https://lib.rs/crates/anyhow"><code>anyhow</code></a> crate is a great example of this style.</p>
+<p>The case of <code>std::io::Error</code> is interesting because it wants to be both of the above and more.</p>
+<ul>
+<li>
+This is <code>std</code>, so encapsulation and future-proofing are paramount.
+</li>
+<li>
+IO errors coming from the operating system often can be handled (for example, <code>EWOULDBLOCK</code>).
+</li>
+<li>
+For a systems programming language, it&rsquo;s important to expose the underlying OS error exactly.
+</li>
+<li>
+The set of potential future OS error is unbounded.
+</li>
+<li>
+<code>io::Error</code> is also a vocabulary type, and should be able to represent some not-quite-os errors.
+For example, Rust <code>Path</code>s can contain internal <code>0</code> bytes and <code>open</code>ing such path should return an <code>io::Error</code> <em>before</em> making a syscall.
+</li>
+</ul>
+<p>Here&rsquo;s what <code>std::io::Error</code> looks like:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">struct</span> <span class="hl-title class_">Error</span> {</code>
+<code>  repr: Repr,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">enum</span> <span class="hl-title class_">Repr</span> {</code>
+<code>  <span class="hl-title function_ invoke__">Os</span>(<span class="hl-type">i32</span>),</code>
+<code>  <span class="hl-title function_ invoke__">Simple</span>(ErrorKind),</code>
+<code>  <span class="hl-title function_ invoke__">Custom</span>(<span class="hl-type">Box</span>&lt;Custom&gt;),</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">Custom</span> {</code>
+<code>  kind: ErrorKind,</code>
+<code>  error: <span class="hl-type">Box</span>&lt;<span class="hl-keyword">dyn</span> error::Error + <span class="hl-built_in">Send</span> + <span class="hl-built_in">Sync</span>&gt;,</code>
+<code>}</code></pre>
+
+</figure>
+<p>First thing to notice is that it&rsquo;s an enum internally, but this is a well-hidden implementation detail.
+To allow inspecting and handing of various error conditions there&rsquo;s a separate public fieldless kind enum:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-meta">#[derive(Clone, Copy)]</span></code>
+<code><span class="hl-meta">#[non_exhaustive]</span></code>
+<code><span class="hl-keyword">pub</span> <span class="hl-keyword">enum</span> <span class="hl-title class_">ErrorKind</span> {</code>
+<code>  NotFound,</code>
+<code>  PermissionDenied,</code>
+<code>  Interrupted,</code>
+<code>  ...</code>
+<code>  Other,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span> <span class="hl-title class_">Error</span> {</code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">kind</span>(&amp;<span class="hl-keyword">self</span>) <span class="hl-punctuation">-&gt;</span> ErrorKind {</code>
+<code>    <span class="hl-keyword">match</span> &amp;<span class="hl-keyword">self</span>.repr {</code>
+<code>      Repr::<span class="hl-title function_ invoke__">Os</span>(code) =&gt; sys::<span class="hl-title function_ invoke__">decode_error_kind</span>(*code),</code>
+<code>      Repr::<span class="hl-title function_ invoke__">Custom</span>(c) =&gt; c.kind,</code>
+<code>      Repr::<span class="hl-title function_ invoke__">Simple</span>(kind) =&gt; *kind,</code>
+<code>    }</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>Although both <code>ErrorKind</code> and <code>Repr</code> are enums, publicly exposing <code>ErrorKind</code> is much less scary.
+A <code>#[non_exhaustive]</code> <code>Copy</code> fieldless enum&rsquo;s design space is a point &mdash; there are no plausible alternatives or compatibility hazards.</p>
+<p><em>Some</em> <code>io::Errors</code> are just raw OS error codes:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">impl</span> <span class="hl-title class_">Error</span> {</code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">from_raw_os_error</span>(code: <span class="hl-type">i32</span>) <span class="hl-punctuation">-&gt;</span> Error {</code>
+<code>    Error { repr: Repr::<span class="hl-title function_ invoke__">Os</span>(code) }</code>
+<code>  }</code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">raw_os_error</span>(&amp;<span class="hl-keyword">self</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;<span class="hl-type">i32</span>&gt; {</code>
+<code>    <span class="hl-keyword">match</span> <span class="hl-keyword">self</span>.repr {</code>
+<code>      Repr::<span class="hl-title function_ invoke__">Os</span>(i) =&gt; <span class="hl-title function_ invoke__">Some</span>(i),</code>
+<code>      Repr::<span class="hl-title function_ invoke__">Custom</span>(..) =&gt; <span class="hl-literal">None</span>,</code>
+<code>      Repr::<span class="hl-title function_ invoke__">Simple</span>(..) =&gt; <span class="hl-literal">None</span>,</code>
+<code>    }</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>Platform-specific <code>sys::decode_error_kind</code> function takes care of mapping error codes to <code>ErrorKind</code> enum.
+All this together means that code can handle error categories in a cross-platform way by inspecting the <code>.kind()</code>.
+However, if the need arises to handle a very specific error code in an OS-dependent way, that is also possible.
+The API carefully provides a convenient abstraction without abstracting away important low-level details.</p>
+<p>An <code>std::io::Error</code> can also be constructed from an <code>ErrorKind</code>:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">impl</span> <span class="hl-title class_">From</span>&lt;ErrorKind&gt; <span class="hl-keyword">for</span> <span class="hl-title class_">Error</span> {</code>
+<code>  <span class="hl-keyword">fn</span> <span class="hl-title function_">from</span>(kind: ErrorKind) <span class="hl-punctuation">-&gt;</span> Error {</code>
+<code>    Error { repr: Repr::<span class="hl-title function_ invoke__">Simple</span>(kind) }</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>This provides cross-platform access to error-code style error handling.
+This is handy if you need the fastest possible errors.</p>
+<p>Finally, there&rsquo;s a third, fully custom variant of the representation:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">impl</span> <span class="hl-title class_">Error</span> {</code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>&lt;E&gt;(kind: ErrorKind, error: E) <span class="hl-punctuation">-&gt;</span> Error</code>
+<code>  <span class="hl-keyword">where</span></code>
+<code>    E: <span class="hl-built_in">Into</span>&lt;<span class="hl-type">Box</span>&lt;<span class="hl-keyword">dyn</span> error::Error + <span class="hl-built_in">Send</span> + <span class="hl-built_in">Sync</span>&gt;&gt;,</code>
+<code>  {</code>
+<code>    <span class="hl-keyword">Self</span>::_new(kind, error.<span class="hl-title function_ invoke__">into</span>())</code>
+<code>  }</code>
+<code></code>
+<code>  <span class="hl-keyword">fn</span> <span class="hl-title function_">_new</span>(</code>
+<code>    kind: ErrorKind,</code>
+<code>    error: <span class="hl-type">Box</span>&lt;<span class="hl-keyword">dyn</span> error::Error + <span class="hl-built_in">Send</span> + <span class="hl-built_in">Sync</span>&gt;,</code>
+<code>  ) <span class="hl-punctuation">-&gt;</span> Error {</code>
+<code>    Error {</code>
+<code>      repr: Repr::<span class="hl-title function_ invoke__">Custom</span>(<span class="hl-type">Box</span>::<span class="hl-title function_ invoke__">new</span>(Custom { kind, error })),</code>
+<code>    }</code>
+<code>  }</code>
+<code></code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">get_ref</span>(</code>
+<code>    &amp;<span class="hl-keyword">self</span>,</code>
+<code>  ) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;&amp;(<span class="hl-keyword">dyn</span> error::Error + <span class="hl-built_in">Send</span> + <span class="hl-built_in">Sync</span> + <span class="hl-symbol">&#x27;static</span>)&gt; {</code>
+<code>    <span class="hl-keyword">match</span> &amp;<span class="hl-keyword">self</span>.repr {</code>
+<code>      Repr::<span class="hl-title function_ invoke__">Os</span>(..) =&gt; <span class="hl-literal">None</span>,</code>
+<code>      Repr::<span class="hl-title function_ invoke__">Simple</span>(..) =&gt; <span class="hl-literal">None</span>,</code>
+<code>      Repr::<span class="hl-title function_ invoke__">Custom</span>(c) =&gt; <span class="hl-title function_ invoke__">Some</span>(&amp;*c.error),</code>
+<code>    }</code>
+<code>  }</code>
+<code></code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">into_inner</span>(</code>
+<code>    <span class="hl-keyword">self</span>,</code>
+<code>  ) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Option</span>&lt;<span class="hl-type">Box</span>&lt;<span class="hl-keyword">dyn</span> error::Error + <span class="hl-built_in">Send</span> + <span class="hl-built_in">Sync</span>&gt;&gt; {</code>
+<code>    <span class="hl-keyword">match</span> <span class="hl-keyword">self</span>.repr {</code>
+<code>      Repr::<span class="hl-title function_ invoke__">Os</span>(..) =&gt; <span class="hl-literal">None</span>,</code>
+<code>      Repr::<span class="hl-title function_ invoke__">Simple</span>(..) =&gt; <span class="hl-literal">None</span>,</code>
+<code>      Repr::<span class="hl-title function_ invoke__">Custom</span>(c) =&gt; <span class="hl-title function_ invoke__">Some</span>(c.error),</code>
+<code>    }</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>Things to note:</p>
+<ul>
+<li>
+<p>Generic <code>new</code> function delegates to monomorphic <code>_new</code> function.
+This improves compile time, as less code needs to be duplicated during monomorphization.
+I think it also improves the runtime a bit: the <code>_new</code> function is not marked as inline, so a function call would be generated at the call-site.
+This is good, because error construction is the cold-path and saving instruction cache is welcome.</p>
+</li>
+<li>
+<p>The <code>Custom</code> variant is boxed &mdash; this is to keep overall <code>size_of</code> smaller.
+On-the-stack size of errors is important: you pay for it even if there are no errors!</p>
+</li>
+<li>
+<p>Both these types refer to a <code>'static</code> error:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">type</span> <span class="hl-title class_">A</span> =   &amp;(<span class="hl-keyword">dyn</span> error::Error + <span class="hl-built_in">Send</span> + <span class="hl-built_in">Sync</span> + <span class="hl-symbol">&#x27;static</span>);</code>
+<code><span class="hl-keyword">type</span> <span class="hl-title class_">B</span> = <span class="hl-type">Box</span>&lt;<span class="hl-keyword">dyn</span> error::Error + <span class="hl-built_in">Send</span> + <span class="hl-built_in">Sync</span>&gt;</code></pre>
+
+</figure>
+<p>In a <code>dyn Trait + '_</code>, the <code>'_</code> is elided to <code>'static</code>, unless the trait object is behind a reference, in which case it is elided as <code>&amp;'a dyn Trait + 'a</code>.</p>
+</li>
+<li>
+<p><code>get_ref</code>, <code>get_mut</code> and <code>into_inner</code> provide full access to the underlying error.
+Similarly to <code>os_error</code> case, abstraction blurs details, but also provides hooks to get the underlying data as-is.</p>
+</li>
+</ul>
+<p>Similarly, <code>Display</code> implementation reveals the most important details about internal representation.</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">impl</span> <span class="hl-title class_">fmt</span>::Display <span class="hl-keyword">for</span> <span class="hl-title class_">Error</span> {</code>
+<code>  <span class="hl-keyword">fn</span> <span class="hl-title function_">fmt</span>(&amp;<span class="hl-keyword">self</span>, fmt: &amp;<span class="hl-keyword">mut</span> fmt::Formatter&lt;<span class="hl-symbol">&#x27;_</span>&gt;) <span class="hl-punctuation">-&gt;</span> fmt::<span class="hl-type">Result</span> {</code>
+<code>    <span class="hl-keyword">match</span> &amp;<span class="hl-keyword">self</span>.repr {</code>
+<code>      Repr::<span class="hl-title function_ invoke__">Os</span>(code) =&gt; {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">detail</span> = sys::os::<span class="hl-title function_ invoke__">error_string</span>(*code);</code>
+<code>        <span class="hl-built_in">write!</span>(fmt, <span class="hl-string">&quot;{} (os error {})&quot;</span>, detail, code)</code>
+<code>      }</code>
+<code>      Repr::<span class="hl-title function_ invoke__">Simple</span>(kind) =&gt; <span class="hl-built_in">write!</span>(fmt, <span class="hl-string">&quot;{}&quot;</span>, kind.<span class="hl-title function_ invoke__">as_str</span>()),</code>
+<code>      Repr::<span class="hl-title function_ invoke__">Custom</span>(c) =&gt; c.error.<span class="hl-title function_ invoke__">fmt</span>(fmt),</code>
+<code>    }</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>To sum up, <code>std::io::Error</code>:</p>
+<ul>
+<li>
+encapsulates its internal representation and optimizes it by boxing large enum variant,
+</li>
+<li>
+provides a convenient way to handle error based on category via <code>ErrorKind</code> pattern,
+</li>
+<li>
+fully exposes underlying OS error, if any.
+</li>
+<li>
+can transparently wrap any other error type.
+</li>
+</ul>
+<p>The last point means that <code>io::Error</code> can be used for ad-hoc errors, as <code>&amp;str</code> and <code>String</code> are convertible to <code>Box&lt;dyn std::error::Error&gt;</code>:</p>
+
+<figure class="code-block">
+
+
+<pre><code>io::Error::<span class="hl-title function_ invoke__">new</span>(io::ErrorKind::Other, <span class="hl-string">&quot;something went wrong&quot;</span>)</code></pre>
+
+</figure>
+<p>It also can be used as a simple replacement for <code>anyhow</code>.
+I <strong>think</strong> some libraries might simplify their error handing with this:</p>
+
+<figure class="code-block">
+
+
+<pre><code>io::Error::<span class="hl-title function_ invoke__">new</span>(io::ErrorKind::InvalidData, my_specific_error)</code></pre>
+
+</figure>
+<p>For example, <a href="https://docs.rs/serde_json/1.0.59/serde_json/fn.from_reader.html"><code>serde_json</code></a> provides the following method:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">from_reader</span>&lt;R, T&gt;(rdr: R) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Result</span>&lt;T, serde_json::Error&gt;</code>
+<code><span class="hl-keyword">where</span></code>
+<code>  R: Read,</code>
+<code>  T: DeserializeOwned,</code></pre>
+
+</figure>
+<p><code>Read</code> can fail with <code>io::Error</code>, so <code>serde_json::Error</code> needs to be able to represent <code>io::Error</code> internally.
+I think this is backwards (but I don&rsquo;t know the whole context, I&rsquo;d be delighted to be proven wrong!), and the signature should have been this instead:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">from_reader</span>&lt;R, T&gt;(rdr: R) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Result</span>&lt;T, io::Error&gt;</code>
+<code><span class="hl-keyword">where</span></code>
+<code>  R: Read,</code>
+<code>  T: DeserializeOwned,</code></pre>
+
+</figure>
+<p>Then, <code>serde_json::Error</code> wouldn&rsquo;t have <code>Io</code> variant and would be stashed into <code>io::Error</code> with <code>InvalidData</code> kind.</p>
+
+<aside class="block">
+<div class="title">Addendum, 2021-01-25</div>
+<p>Re-reading <a href="https://sled.rs/errors.html">this article</a>, I now think that the right return type would be:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">from_reader</span>&lt;R, T&gt;(</code>
+<code>  rdr: R,</code>
+<code>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Result</span>&lt;<span class="hl-type">Result</span>&lt;T, serde_json::Error&gt;, io::Error&gt;</code>
+<code><span class="hl-keyword">where</span></code>
+<code>  R: Read,</code>
+<code>  T: DeserializeOwned,</code></pre>
+
+</figure>
+<p>This forces separate handling of IO and deserialization errors, which makes sense in this case.
+IO error is probably a hardware/environment problem outside of the domain of the program, while serialization error most likely indicates a bug somewhere in the system.</p>
+
+</aside>
+  <p>I think <code>std::io::Error</code> is a truly marvelous type, which manages to serve many different use-cases without much compromise.
+But can we perhaps do better?</p>
+<p>The number one problem with <code>std::io::Error</code> is that, when a file-system operation fails, you don&rsquo;t know which path it has failed for!
+This is understandable &mdash; Rust is a systems language, so it shouldn&rsquo;t add much fat over what OS provides natively.
+OS returns an integer return code, and coupling that with a heap-allocated <code>PathBuf</code> could be an unacceptable overhead!</p>
+
+<aside class="block">
+
+<p>I was surprised to learn that std in fact
+<a href="https://github.com/rust-lang/rust/blob/e160e5cb80652bc2afe74cb3affbe35b74243ea9/library/std/src/sys/unix/fs.rs#L867-L869">does</a>
+an allocation for every path-related syscall.</p>
+<p>It needs to be there in some form: OS API require that unfortunate zero byte at the end of strings.
+But I wonder if using a stack-allocated buffer for short paths would&rsquo;ve made sense.
+Probably not &mdash; paths are not that short usually, and modern allocators handle transient allocations efficiently.</p>
+
+</aside>
+  <p>I don&rsquo;t know an obviously good solution here.
+One option would be to add compile time (once we get std-aware cargo) or runtime (a-la <code>RUST_BACKTRACE</code>) switch to heap-allocate all path-related IO errors.
+A similarly-shaped problem is that <code>io::Error</code> doesn&rsquo;t carry a backtrace.</p>
+<p>The other problem is that <code>std::io::Error</code> is not as efficient as it could be:</p>
+<ul>
+<li>
+<p>Its size is pretty big:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-built_in">assert_eq!</span>(size_of::&lt;io::Error&gt;(), <span class="hl-number">2</span> * size_of::&lt;<span class="hl-type">usize</span>&gt;());</code></pre>
+
+</figure>
+</li>
+<li>
+<p>For custom case, it incurs double indirection and allocation:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">enum</span> <span class="hl-title class_">Repr</span> {</code>
+<code>  <span class="hl-title function_ invoke__">Os</span>(<span class="hl-type">i32</span>),</code>
+<code>  <span class="hl-title function_ invoke__">Simple</span>(ErrorKind),</code>
+<code>  <span class="hl-comment">// First Box :|</span></code>
+<code>  <span class="hl-title function_ invoke__">Custom</span>(<span class="hl-type">Box</span>&lt;Custom&gt;),</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">Custom</span> {</code>
+<code>  kind: ErrorKind,</code>
+<code>  <span class="hl-comment">// Second Box :(</span></code>
+<code>  error: <span class="hl-type">Box</span>&lt;<span class="hl-keyword">dyn</span> error::Error + <span class="hl-built_in">Send</span> + <span class="hl-built_in">Sync</span>&gt;,</code>
+<code>}</code></pre>
+
+</figure>
+</li>
+</ul>
+<p>I think we can fix this now!</p>
+<p><em>First</em>, we can get rid of double indirection by using a thin trait object, a-la
+<a href="https://github.com/rust-lang-nursery/failure/blob/135e2a3b9af422d9a9dc37ce7c69354c9b36e94b/src/error/error_impl_small.rs#L9-L18"><code>failure</code></a> or
+<a href="https://github.com/dtolnay/anyhow/blob/840afd84e9dd91ac5340c05afadeecbe45d0b810/src/error.rs#L671-L679"><code>anyhow</code></a>.
+Now that <a href="https://doc.rust-lang.org/stable/std/alloc/trait.GlobalAlloc.html"><code>GlobalAlloc</code></a> exist, it&rsquo;s a relatively straight-forward implementation.</p>
+<p><em>Second</em>, we can make use of the fact that pointers are aligned, and stash both <code>Os</code> and <code>Simple</code> variants into <code>usize</code> with the least significant bit set.
+I think we can even get creative and use the <em>second</em> least significant bit, leaving the first one as a niche.
+That way, even something like <code>io::Result&lt;i32&gt;</code> can be pointer-sized!</p>
+<p>And this concludes the post.
+Next time you&rsquo;ll be designing an error type for your library, take a moment to peer through
+<a href="https://github.com/rust-lang/rust/blob/5565241f65cf402c3dbcb55dd492f172c473d4ce/library/std/src/io/error.rs">sources</a>
+of <code>std::io::Error</code>, you might find something to steal!</p>
+<p>Discussion on <a href="https://www.reddit.com/r/rust/comments/jbdk5x/blog_post_study_of_stdioerror/">/r/rust</a>.</p>
+
+<aside class="block">
+<div class="title">Bonus puzzler</div>
+<p>Take a look at
+<a href="https://github.com/rust-lang/rust/blob/e160e5cb80652bc2afe74cb3affbe35b74243ea9/library/std/src/io/error.rs#L542">this line</a> from the implementation:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">impl</span> <span class="hl-title class_">fmt</span>::Display <span class="hl-keyword">for</span> <span class="hl-title class_">Error</span> {</code>
+<code>  <span class="hl-keyword">fn</span> <span class="hl-title function_">fmt</span>(&amp;<span class="hl-keyword">self</span>, fmt: &amp;<span class="hl-keyword">mut</span> fmt::Formatter&lt;<span class="hl-symbol">&#x27;_</span>&gt;) <span class="hl-punctuation">-&gt;</span> fmt::<span class="hl-type">Result</span> {</code>
+<code>    <span class="hl-keyword">match</span> &amp;<span class="hl-keyword">self</span>.repr {</code>
+<code>      Repr::<span class="hl-title function_ invoke__">Os</span>(code) =&gt; {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">detail</span> = sys::os::<span class="hl-title function_ invoke__">error_string</span>(*code);</code>
+<code>        <span class="hl-built_in">write!</span>(fmt, <span class="hl-string">&quot;{} (os error {})&quot;</span>, detail, code)</code>
+<code>      }</code>
+<code>      Repr::<span class="hl-title function_ invoke__">Simple</span>(kind) =&gt; <span class="hl-built_in">write!</span>(fmt, <span class="hl-string">&quot;{}&quot;</span>, kind.<span class="hl-title function_ invoke__">as_str</span>()),</code>
+<code class="hl-line">      Repr::<span class="hl-title function_ invoke__">Custom</span>(c) =&gt; c.error.<span class="hl-title function_ invoke__">fmt</span>(fmt),</code>
+<code>    }</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<ol>
+<li>
+Why is it surprising that this line works?
+</li>
+<li>
+Why does it work?
+</li>
+</ol>
+
+</aside>
+  </article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2020-10-15-study-of-std-io-error.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

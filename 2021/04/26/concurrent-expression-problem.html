@@ -1,0 +1,198 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Concurrent Expression Problem</title>
+  <meta name="description" content="I am struggling with designing concurrent code.
+In this post, I want to share a model problem which exemplifies some of the issues.
+It is reminiscent of the famous expression problem in that there's a two dimensional design grid, and a win along one dimension translates to a loss along the other.
+If you want a refresher on the expression problem (not required to understand this article), take a look at this post.
+It's not canonical, but I like it.">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2021/04/26/concurrent-expression-problem.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Concurrent-Expression-Problem">Concurrent Expression Problem <time datetime="2021-04-26">Apr 26, 2021</time></a>
+    </h1>
+<p>I am struggling with designing concurrent code.
+In this post, I want to share a model problem which exemplifies some of the issues.
+It is reminiscent of the famous expression problem in that there&rsquo;s a two dimensional design grid, and a win along one dimension translates to a loss along the other.
+If you want a refresher on the expression problem (not required to understand this article), take a look at <a href="https://www.tedinski.com/2018/02/27/the-expression-problem.html">this post</a>.
+It&rsquo;s not canonical, but I like it.</p>
+<p>Without further ado, concurrent expression problem:</p>
+
+<aside class="block">
+
+<p>Define a set of concurrent activities which interact with shared mutable state with invariants, such that it is easy to introduce new activities and additional invariants.</p>
+
+</aside>
+  <p>I am not sure that&rsquo;s exactly the right formulation, I feel like I am straining it a bit to fit the expression problem shape.
+The explanation that follows matters more.</p>
+<p>I think there are two ways to code the system described.
+The first approach is to us a separate thread / goroutine / async task for each concurrent activity, with some synchronization around the access to the shared state.
+The alternative approach is to write an explicit state machine / actor loop to receive the next event and process it.</p>
+<p>In the first scheme, adding new activities is easy, as you just write straight-line code with maybe some <code>.await</code>s here and there.
+In the second scheme, it&rsquo;s easy to check and act on invariants, as there is only a single place where the state is modified.</p>
+<p>Let&rsquo;s take a look at a concrete example.
+We&rsquo;ll be using a pseudo code for a language with cooperative concurrency and explicit yield points (think Python with async/await).</p>
+<p>The state consists of two counters.
+One activity decrements the first counter every second.
+The other activity does the same to the other counter.
+When <em>both</em> counters reach zero, we want to print something.</p>
+<p>The first approach would look roughly like this:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">State</span> { c1: <span class="hl-type">u32</span>, c2: <span class="hl-type">u32</span> }</code>
+<code></code>
+<code><span class="hl-keyword">async</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">act1</span>(state: State) {</code>
+<code>  <span class="hl-keyword">while</span> state.c1 &gt; <span class="hl-number">0</span> {</code>
+<code>    <span class="hl-title function_ invoke__">sleep</span>(<span class="hl-number">1</span>).<span class="hl-keyword">await</span>;</code>
+<code>    state.c1 -= <span class="hl-number">1</span>;</code>
+<code>    <span class="hl-keyword">if</span> state.c1 == <span class="hl-number">0</span> &amp;&amp; state.c2 == <span class="hl-number">0</span> {</code>
+<code>      <span class="hl-title function_ invoke__">print</span>(<span class="hl-string">&quot;both are zero&quot;</span>)</code>
+<code>    }</code>
+<code>  }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">async</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">act2</span>(state: State) {</code>
+<code>  <span class="hl-keyword">while</span> state.c2 &gt; <span class="hl-number">0</span> {</code>
+<code>    <span class="hl-title function_ invoke__">sleep</span>(<span class="hl-number">1</span>).<span class="hl-keyword">await</span>;</code>
+<code>    state.c2 -= <span class="hl-number">1</span>;</code>
+<code>    <span class="hl-keyword">if</span> state.c1 == <span class="hl-number">0</span> &amp;&amp; state.c2 == <span class="hl-number">0</span> {</code>
+<code>      <span class="hl-title function_ invoke__">print</span>(<span class="hl-string">&quot;both are zero&quot;</span>)</code>
+<code>    }</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>And the second one like this:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">async</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">run</span>(state: State) {</code>
+<code>  <span class="hl-keyword">loop</span> {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">event</span> = <span class="hl-title function_ invoke__">next_event</span>().<span class="hl-keyword">await</span>;</code>
+<code>    <span class="hl-keyword">match</span> event {</code>
+<code>      Event::Dec1 =&gt; {</code>
+<code>        state.c1 -= <span class="hl-number">1</span>;</code>
+<code>        <span class="hl-keyword">if</span> state.c1 &gt; <span class="hl-number">0</span> {</code>
+<code>          <span class="hl-title function_ invoke__">send_event_with_delay</span>(Event::Dec1, <span class="hl-number">1</span>)</code>
+<code>        }</code>
+<code>      }</code>
+<code>      Event::Dec2 =&gt; {</code>
+<code>        state.c2 -= <span class="hl-number">1</span>;</code>
+<code>        <span class="hl-keyword">if</span> state.c2 &gt; <span class="hl-number">0</span> {</code>
+<code>          <span class="hl-title function_ invoke__">send_event_with_delay</span>(Event::Dec2, <span class="hl-number">1</span>)</code>
+<code>        }</code>
+<code>      }</code>
+<code>    }</code>
+<code>    <span class="hl-keyword">if</span> state.c1 == <span class="hl-number">0</span> &amp;&amp; state.c2 == <span class="hl-number">0</span> {</code>
+<code>      <span class="hl-title function_ invoke__">print</span>(<span class="hl-string">&quot;both are zero&quot;</span>)</code>
+<code>    }</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>It&rsquo;s much easier to see what the concurrent activities are in the first case.
+It&rsquo;s more clear how the overall state evolves in the second case.</p>
+<p>The second approach also gives you more control &mdash; if several events are ready, you can process them in the order of priority (usually it makes sense to prioritize writes over reads).
+You can trivially add some logging at the start and end of the loop to collect data about slow events and overall latency.
+But the hit to the programming model is big.
+If you are new to the code and don&rsquo;t know which conceptual activities are there, it&rsquo;s hard to figure out that just from the code.
+The core issue is that causal links between asynchronous events are not reified in the code:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">match</span> {</code>
+<code>  Event::X =&gt; { <span class="hl-title function_ invoke__">do_x</span>() },</code>
+<code>  Event::Y =&gt; { <span class="hl-title function_ invoke__">do_y</span>() },</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-comment">// vs</span></code>
+<code></code>
+<code><span class="hl-keyword">async</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">do_xy</span>() {</code>
+<code>  <span class="hl-title function_ invoke__">do_x</span>().<span class="hl-keyword">await</span>;</code>
+<code>  <span class="hl-title function_ invoke__">do_y</span>().<span class="hl-keyword">await</span>;</code>
+<code>}</code></pre>
+
+</figure>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2021-04-26-concurrent-expression-problem.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

@@ -1,0 +1,157 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Three-State Stability</title>
+  <meta name="description" content="Usually, when discussing stability of the APIs (in a broad sense; databases and programming languages are also APIs), only two states are mentioned:">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2023/02/16/three-state-stability.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Three-State-Stability">Three-State Stability <time datetime="2023-02-16">Feb 16, 2023</time></a>
+    </h1>
+<p>Usually, when discussing stability of the APIs (in a broad sense; databases and programming languages are also APIs), only two states are mentioned:</p>
+<ul>
+<li>
+an API is stable if there&rsquo;s a promise that all future changes would be backwards compatible
+</li>
+<li>
+otherwise, it is unstable
+</li>
+</ul>
+<p>This is reflected in, e.g, SemVer: before 1.0, anything goes, after 1.0 you only allow to break API if you bump major version.</p>
+<p>I think the <em>actual</em> situation in the real world is a bit more nuanced than that.
+In addition to clearly stable or clearly unstable, there&rsquo;s often a poorly defined third category.
+It often manifests as either:</p>
+<ul>
+<li>
+some technically non-stable version of the project (e.g., <code>0.2</code>) becoming widely used and de facto stable
+</li>
+<li>
+some minor but technically breaking quietly slipping in shortly after 1.0
+</li>
+</ul>
+<p>Here&rsquo;s what I think happens over a lifetime of a typical API:</p>
+<p>In the first phase, the API is actively evolving.
+There is a promise of anti-stability &mdash; there&rsquo;s constant change and a lot of experimentation.
+Almost no one is using the project seriously:</p>
+<ul>
+<li>
+the API is simply incomplete, there are large gaps in functionality
+</li>
+<li>
+chasing upstream requires continuous, large effort
+</li>
+<li>
+there&rsquo;s no certainty that the project will, in fact, ship a stable version, rather than die
+</li>
+</ul>
+<p>In the second phase, the API is <em>mostly</em> settled.
+It does everything it needs to do, and the shape feels mostly right.
+Transition to this state happens when the API maintainers feel like they nailed down everything.
+However, no wide deployment had happened, so there might still be minor, but backwards incompatible adjustments wanting to be made.
+It makes sense to use the API for all <em>active</em> projects (though it costs you an innovation token).
+The thing basically works, you <em>might</em> need to adjust your code from time to time, occasionally an adjustment is not trivial, but the overall expected effort is low.
+The API is fully production ready, and has everything except stability.
+If you write a program on top of the API today, and try to run it ten years later, it will fail.
+But if you are making your own releases a couple of times a year, you should be fine.</p>
+<p>In the third phase, the API is fully stable, and no backwards-incompatible changes are expected.
+Otherwise, it is identical to the second phase.
+Transition to this phase happens after:</p>
+<ul>
+<li>
+early adopters empirically stop uncovering deficiencies in the API
+</li>
+<li>
+API maintainers make a commitment to maintain stability.
+</li>
+</ul>
+<p>In other words, it is not unstable -&gt; stable, it is rather:</p>
+<ul>
+<li>
+experimental (unstable, not fit for production)
+</li>
+<li>
+production ready (still unstable, but you can budget-in a bounded amount of upgrade work)
+</li>
+<li>
+stable (no maintenance work is required)
+</li>
+</ul>
+<p>We don&rsquo;t have great, catchy terms to describe the second bullet, so it gets lumped together with the first or the last one.</p>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2023-02-16-three-state-stability.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

@@ -1,0 +1,223 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Builder Lite</title>
+  <meta name="description" content="In this short post, I describe and name a cousin of the builder pattern --- builder lite.">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2022/05/29/builder-lite.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Builder-Lite">Builder Lite <time datetime="2022-05-29">May 29, 2022</time></a>
+    </h1>
+<p>In this short post, I describe and name a cousin of the builder pattern &mdash; builder lite.</p>
+<p>Unlike a traditional builder, which uses a separate builder object, builder lite re-uses the object itself to provide builder functionality.</p>
+<p>Here&rsquo;s an illustrative example</p>
+
+<figure class="code-block">
+<figcaption class="title">Builder Lite</figcaption>
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">struct</span> <span class="hl-title class_">Shape</span> {</code>
+<code>  position: Vec3,</code>
+<code>  geometry: Geometry,</code>
+<code>  material: <span class="hl-type">Option</span>&lt;Material&gt;,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span> <span class="hl-title class_">Shape</span> {</code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>(geometry: Geometry) <span class="hl-punctuation">-&gt;</span> Shape {</code>
+<code>    Shape {</code>
+<code>      position: Vec3::<span class="hl-title function_ invoke__">default</span>(),</code>
+<code>      geometry,</code>
+<code>      material: <span class="hl-literal">None</span>,</code>
+<code>    }</code>
+<code>  }</code>
+<code></code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">with_position</span>(<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, position: Vec3) <span class="hl-punctuation">-&gt;</span> Shape {</code>
+<code>    <span class="hl-keyword">self</span>.position = position;</code>
+<code>    <span class="hl-keyword">self</span></code>
+<code>  }</code>
+<code></code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">with_material</span>(<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, material: Material) <span class="hl-punctuation">-&gt;</span> Shape {</code>
+<code>    <span class="hl-keyword">self</span>.material = <span class="hl-title function_ invoke__">Some</span>(material);</code>
+<code>    <span class="hl-keyword">self</span></code>
+<code>  }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-comment">// Call site</span></code>
+<code></code>
+<code><span class="hl-keyword">let</span> <span class="hl-variable">shape</span> = Shape::<span class="hl-title function_ invoke__">new</span>(Geometry::Sphere::<span class="hl-title function_ invoke__">with_radius</span>(<span class="hl-number">1</span>))</code>
+<code>  .<span class="hl-title function_ invoke__">with_position</span>(<span class="hl-title function_ invoke__">Vec3</span>(<span class="hl-number">0</span>, <span class="hl-number">9</span>, <span class="hl-number">2</span>))</code>
+<code>  .<span class="hl-title function_ invoke__">with_material</span>(Material::<span class="hl-title function_ invoke__">SolidColor</span>(Color::Red));</code></pre>
+
+</figure>
+<p>In contrast, the full builder is significantly wordier at the definition site, and requires a couple of extra invocations at the call site:</p>
+
+<figure class="code-block">
+<figcaption class="title">Builder</figcaption>
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">struct</span> <span class="hl-title class_">Shape</span> {</code>
+<code>  position: Vec3,</code>
+<code>  geometry: Geometry,</code>
+<code>  material: <span class="hl-type">Option</span>&lt;Material&gt;,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">pub</span> <span class="hl-keyword">struct</span> <span class="hl-title class_">ShapeBuilder</span> {</code>
+<code>  position: <span class="hl-type">Option</span>&lt;Vec3&gt;,</code>
+<code>  geometry: <span class="hl-type">Option</span>&lt;Geometry&gt;,</code>
+<code>  texture: <span class="hl-type">Option</span>&lt;Texture&gt;,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span> <span class="hl-title class_">Shape</span> {</code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">builder</span>() <span class="hl-punctuation">-&gt;</span> ShapeBuilder { ... }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span> <span class="hl-title class_">ShapeBuilder</span> {</code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">position</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, position: Vec3) <span class="hl-punctuation">-&gt;</span> &amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">Self</span> { ... }</code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">geometry</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, geometry: Geometry) <span class="hl-punctuation">-&gt;</span> &amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">Self</span> { ... }</code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">material</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, material: Material) <span class="hl-punctuation">-&gt;</span> &amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">Self</span> { ... }</code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">build</span>(&amp;<span class="hl-keyword">self</span>) <span class="hl-punctuation">-&gt;</span> Shape { ... }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-comment">// Call site</span></code>
+<code></code>
+<code><span class="hl-keyword">let</span> <span class="hl-variable">shape</span> = Shape::<span class="hl-title function_ invoke__">builder</span>()</code>
+<code>  .<span class="hl-title function_ invoke__">position</span>(<span class="hl-title function_ invoke__">Vec3</span>(<span class="hl-number">9</span>, <span class="hl-number">2</span>))</code>
+<code>  .<span class="hl-title function_ invoke__">geometry</span>(Geometry::Sphere::<span class="hl-title function_ invoke__">with_radius</span>(<span class="hl-number">1</span>))</code>
+<code>  .<span class="hl-title function_ invoke__">material</span>(Material::<span class="hl-title function_ invoke__">SolidColor</span>(Color::Red))</code>
+<code>  .<span class="hl-title function_ invoke__">build</span>();</code></pre>
+
+</figure>
+<p>The primary benefit of builder-lite is that it is an incremental, zero-cost evolution from the <code>new</code> method.
+As such, it is especially useful in the context where the code evolves rapidly, in an uncertain direction.
+That is, when building applications rather than library.</p>
+<p>To pull a motivational example from work, we had the following typical code:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">impl</span> <span class="hl-title class_">PeerManagerActor</span> {</code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>(</code>
+<code>    store: Store,</code>
+<code>    config: NetworkConfig,</code>
+<code>    client_addr: Recipient&lt;NetworkClientMessages&gt;,</code>
+<code>    view_client_addr: Recipient&lt;NetworkViewClientMessages&gt;,</code>
+<code>    routing_table_addr: Addr&lt;RoutingTableActor&gt;,</code>
+<code>  ) <span class="hl-punctuation">-&gt;</span> anyhow::<span class="hl-type">Result</span>&lt;<span class="hl-keyword">Self</span>&gt; {</code></pre>
+
+</figure>
+<p>Here&rsquo;s a <code>new</code> method with a whole bunch of arguments for various dependencies.
+What we needed to do is to add yet another dependency, so that it could be overwritten in tests.
+The first attempt just added one more parameter to the <code>new</code> method:</p>
+
+<figure class="code-block">
+
+
+<pre><code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>(</code>
+<code>    store: Store,</code>
+<code>    config: NetworkConfig,</code>
+<code>    client_addr: Recipient&lt;NetworkClientMessages&gt;,</code>
+<code>    view_client_addr: Recipient&lt;NetworkViewClientMessages&gt;,</code>
+<code>    routing_table_addr: Addr&lt;RoutingTableActor&gt;,</code>
+<code>+   ping_counter: <span class="hl-type">Box</span>&lt;<span class="hl-keyword">dyn</span> PingCounter&gt;,</code>
+<code>  ) <span class="hl-punctuation">-&gt;</span> anyhow::<span class="hl-type">Result</span>&lt;<span class="hl-keyword">Self</span>&gt; {</code></pre>
+
+</figure>
+<p>However, this change required update of the seven call-sites where the <code>new</code> was called to supply the default counter.
+Switching that to builder lite allowed us to only modify a single call-site where we cared to override the counter.</p>
+<p>A note on naming:<br>
+If builder methods are to be used only occasionally, <code>with_foo</code> is the best naming.
+If most call-sites make use of builder methods, just <code>.foo</code> might work better.
+For boolean properties, sometimes it makes sense to have both:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">fancy</span>(<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-keyword">Self</span> {</code>
+<code>  <span class="hl-keyword">self</span>.<span class="hl-title function_ invoke__">with_fancy</span>(<span class="hl-literal">true</span>)</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">with_fancy</span>(<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, yes: <span class="hl-type">bool</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-keyword">Self</span> {</code>
+<code>  <span class="hl-keyword">self</span>.fancy = yes;</code>
+<code>  <span class="hl-keyword">self</span></code>
+<code>}</code></pre>
+
+</figure>
+<p>Discussion on <a href="https://old.reddit.com/r/rust/comments/v07kac/blog_post_builder_lite/">/r/rust</a>.</p>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2022-05-29-builder-lite.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

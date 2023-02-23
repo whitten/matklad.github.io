@@ -1,0 +1,350 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Consider Using Asciidoctor for Your Next Presentation</title>
+  <meta name="description" content="I've spend years looking for a good tool to make slides.
+I've tried LaTeX Beamer, Google Docs, Slides.com and several reveal.js offsprings, but neither was satisfactory for me.
+Last year, I stumbled upon Asciidoctor.js PDF (which had like three GitHub starts at that moment), and it is perfect.">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2019/05/19/consider-using-asciidoctor-for-your-next-presentation.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Consider-Using-Asciidoctor-for-Your-Next-Presentation">Consider Using Asciidoctor for Your Next Presentation <time datetime="2019-05-19">May 19, 2019</time></a>
+    </h1>
+<p>I&rsquo;ve spend years looking for a good tool to make slides.
+I&rsquo;ve tried LaTeX Beamer, Google Docs, Slides.com and several reveal.js offsprings, but neither was satisfactory for me.
+Last year, I stumbled upon <a href="https://github.com/Mogztter/asciidoctor-pdf.js">Asciidoctor.js PDF</a> (which had like three GitHub starts at that moment), and it is <strong>perfect</strong>.</p>
+<p>At least, it is perfect for my use case, your requirements might be different.
+I make presentations for teaching programming at <a href="https://compscicenter.ru">Computer Science Center</a>, so my slides are full of code, bullet lists, and sometimes have moderately complex layout.
+To make reviewing course material easier, slides need to have high information density</p>
+<p>If you want to cut down straight to the code, see the repository with slides for my Rust course:</p>
+<p><a href="http://github.com/matklad/rust-course">http://github.com/matklad/rust-course</a></p>
+<p>By the way, <a href="/2019/05/19/rust-course-retrospective.html">the sibling post</a> talks about the course in more detail.</p>
+<section id="Requirements">
+
+    <h2>
+    <a href="#Requirements">Requirements </a>
+    </h2>
+<p>The specific things I want from the slides are:</p>
+<ul>
+<li>
+A source markup language: I like to keep my slides on GitHub
+</li>
+<li>
+Ease of styling and layout.
+A good test here is two-column layout with code snippet on the left and a bullet list on the right
+</li>
+<li>
+The final output should be a PDF.
+I don&rsquo;t use animations, but I need exactly the same look of slides on different computers
+</li>
+</ul>
+<p>All the tools I&rsquo;ve tried don&rsquo;t quite fit the bill.</p>
+<p>While TeX is good for formatting formulas, LaTeX is a relatively poor language for describing the structure of the document.
+Awesome Emacs mode fixes the issue partially, but still, <code>\begin{itemize}</code> is way to complex for a bullet list.
+Additionally, quality of implementation is not perfect: unicode support needs opt-in, and the build process is fiddly.</p>
+<p><a href="http://slides.google.com/">Google Docs</a> and <a href="https://slides.com/">Slides.com</a> are pretty solid choices if you want WYSWIG.
+In fact, I primarily used these two tools before AsciiDoctor.
+However WYSWIG and limited flexibility which come with it are significant drawbacks</p>
+<p>I think I&rsquo;ve never made a serious presentation in any of the JavaScript presentation frameworks.
+I&rsquo;ve definitely tried <a href="https://revealjs.com/">reveal.js</a>, <a href="https://remarkjs.com/#1">remark</a> and <a href="https://shwr.me">shower</a>, but turned back to Google Docs in the end.
+The two main reasons for this were:</p>
+<ul>
+<li>
+Less than ideal source language:
+<ul>
+<li>
+if it is Markdown, I struggled with creating complex layouts like the two column one;
+</li>
+<li>
+if it is HTML, simple things like bullet lists or emphasis are hard.
+</li>
+</ul>
+</li>
+<li>
+Cross browser CSS.
+These frameworks pack a lot of JS and CSS, which I don&rsquo;t really need, but which makes tweaking stuff difficult for me, as I am not a professional web developer.
+</li>
+</ul>
+</section>
+<section id="AsciiDoc-Language">
+
+    <h2>
+    <a href="#AsciiDoc-Language">AsciiDoc Language </a>
+    </h2>
+<p>The killer feature behind Asciidoctor.js PDF is the AsciiDoc markup language.
+Like Markdown, it&rsquo;s a lightweight markup language.
+When I was translating this blog from <code>.md</code> to <code>.adoc</code> the only significant change in the syntax was for links, from</p>
+
+<figure class="code-block">
+
+
+<pre><code>[some link](http://example.com)</code></pre>
+
+</figure>
+<p>to</p>
+
+<figure class="code-block">
+
+
+<pre><code>[some link](http://example.com)</code></pre>
+
+</figure>
+<p>However, unlike Markdown and LaTeX, AsciiDoc has native support for rich hierarchical document model.
+AsciiDoc source is parsed into a tree of nested elements with attributes (historically, AsciiDoc was created as an easier way to author <a href="https://docbook.org/">DocBook</a> XML).
+This allows to express complex document structure without ad-hoc syntax extensions.
+Additionally, the concrete syntax feels very orthogonal and well rounded up.
+We&rsquo;ve seen the syntax for links before, and this is how one includes an image:</p>
+
+<figure class="code-block">
+
+
+<pre><code>image::assets/logo.svg[alt text]</code></pre>
+
+</figure>
+<p>Or a snippet from another file:</p>
+
+<figure class="code-block">
+
+
+<pre><code>include::code_samples/worker.rs[]</code></pre>
+
+</figure>
+<p>A couple of more examples, just to whet your appetite (Asciidoctor has <a href="https://asciidoctor.org/docs/user-manual/">extensive documentation</a>)</p>
+
+<figure class="code-block">
+<figcaption class="title">Paragraphs</figcaption>
+
+
+<pre><code>This is a paragraph</code>
+<code></code>
+<code>[.lead]</code>
+<code>This is a paragraph with an attribute (which translates to CSS class)</code></pre>
+
+</figure>
+<div>
+<p>This is a paragraph</p>
+<p class="lead">This is a paragraph with an attribute (which translates to CSS class)</p>
+</div>
+
+<figure class="code-block">
+<figcaption class="title">List with nested elements</figcaption>
+
+
+<pre><code>* This is a bullet list</code>
+<code>* Bullet with table (+ joins blocks)</code>
+<code>+</code>
+<code>|===</code>
+<code>|Are tables in lists stupid?| Probably!</code>
+<code>|===</code></pre>
+
+</figure>
+<div>
+<ul>
+<li>
+<p>This is a bullet list</p>
+</li>
+<li>
+<p>Bullet with table (+ joins blocks)</p>
+<table>
+<tr>
+<td>Are tables in lists stupid?</td>
+<td>Probably!</td>
+</tr>
+</table>
+</li>
+</ul>
+</div>
+
+<figure class="code-block">
+<figcaption class="title">Code with inline markup</figcaption>
+
+
+<pre><code>[source,rust,subs="+quotes"]</code>
+<code>----</code>
+<code>let x = 1;</code>
+<code>let r: &amp;i32;</code>
+<code>{</code>
+<code>    let y = 2;</code>
+<code>    r = [.hl-error]##&amp;y##;  // borrowed value does not live long enough</code>
+<code>}</code>
+<code>println!("{}", *r);</code>
+<code>----</code></pre>
+
+</figure>
+
+<figure>
+
+<img alt="" src="/assets/adoc-hl-error.png">
+</figure>
+<p>That is, in addition to the usual syntax highlighting, the <code>&amp;xs[0]</code> bit is wrapped into a <code>&lt;span class="hl-error"&gt;</code>.
+This can be used to call out specific bits of code, or, like in this case, to show compiler errors:</p>
+<p>Here&rsquo;s an example of a complex slide:</p>
+
+<figure class="code-block">
+
+
+<pre><code>[.two-col]  <i class="callout" data-value="1"></i> <i class="callout" data-value="4"></i></code>
+<code>## Ссылки в C++ и Rust</code>
+<code></code>
+<code>.C++</code>
+<code>- создаются неявно</code>
+<code>- не являются первоклассными объектами (`std::reference_wrapper`)</code>
+<code>- не всегда валидны</code>
+<code></code>
+<code>.Rust</code>
+<code>- требуют явных `&amp;`/[.language-rust]`&amp;mut` и `*` <i class="callout" data-value="2"></i></code>
+<code>- обычные объекты <i class="callout" data-value="3"></i></code>
+<code>+</code>
+<code>[source,rust]</code>
+<code>----</code>
+<code>let x = 1;</code>
+<code>let y = 2;</code>
+<code>let mut r: &amp;i32 = &amp;x;</code>
+<code>r = &amp;y;</code>
+<code>----</code>
+<code>- всегда валидны</code></pre>
+
+</figure>
+<ol class="callout">
+<li>
+<code>.two-col</code> sets the css class for two-column flex layout.
+</li>
+<li>
+<code>[.language-rust]</code> sets css class for inline <code>&lt;code&gt;</code> element, so <code>mut</code> gets highlighted.
+</li>
+<li>
+This bullet-point contains a longer snippet of code.
+</li>
+<li>
+Have you noticed these circled numbered callouts? They are another useful feature of AsciiDoc!
+</li>
+</ol>
+<p>The result is the following slide</p>
+
+<figure>
+
+<img alt="" src="/assets/adoc-slide.png">
+</figure>
+</section>
+<section id="HTML-Translation">
+
+    <h2>
+    <a href="#HTML-Translation">HTML Translation </a>
+    </h2>
+<p>AsciiDoc markup language is a powerful primitive, but how do we turn it into pixels on the screen?
+The hard part of making slides is laying out the contents: breaking paragraphs in lines, aligning images, arranging columns.
+As was <a href="https://github.com/asciidoctor/asciidoctor/issues/2972#issuecomment-441475262">pointed out by Asciidoctor maintainer</a>, browsers are extremely powerful layout engines, and HTML + CSS is a decent way to describe the layout.</p>
+<p>And here&rsquo;s where Asciidoctor.js PDF comes in: it allows one to transform AsciiDoc DOM into HTML, by supplying a functional-style visitor.
+This HTML is then rendered to PDF by chromium (but you can totally use HTML slides directly if you like it more).</p>
+<p>Here&rsquo;s the visitor which produces the slides for my Rust course:</p>
+<p><a href="https://github.com/matklad/rust-course/blob/0fe5fea215514f4aaff6ae61bca5ac033fcfe348/lectures/template.js#L1-L63">https://github.com/matklad/rust-course/blob/master/lectures/template.js</a></p>
+<p>In contrast to reveal.js, I have full control over the resulting HTML and CSS.
+As I don&rsquo;t need cross browser support or complex animations, I can write a relatively simple modern CSS, which I myself can understand.</p>
+</section>
+<section id="Bits-and-Pieces">
+
+    <h2>
+    <a href="#Bits-and-Pieces">Bits and Pieces </a>
+    </h2>
+<p>Note that Asciidoctor.js PDF is a relatively new piece of technology (although the underlying Asciidoctor project is <strong><strong>very</strong></strong> mature).
+For this reason for my slides I just vendor a specific version of the tool.</p>
+<p>Because the intermediate result is HTML, the development workflow is very smooth.
+It&rsquo;s easy to make a live preview with a couple of editor plugins, and you can use browser&rsquo;s dev-tools to debug CSS.
+I&rsquo;ve also written a tiny bit of JavaScript to enable keyboard navigation for slides during preview.
+Syntax highlighting is also a bespoke pile of regexes :-)</p>
+<p>One thing I am worried about is the depth of the stack of technologies of Asciidoctor.js PDF.</p>
+<ol>
+<li>
+Original AsciiDoc tool was written in Python.
+</li>
+<li>
+Asciidoctor is a modern enhanced re-implementation in Ruby.
+</li>
+<li>
+Asciidoctor.js PDF runs on NodeJS via <a href="https://opalrb.com/">Opal</a> Ruby -&gt; JavaScript compiler
+</li>
+<li>
+It is used to produce HTML which is then fed into chromium to produce PDF!
+</li>
+</ol>
+<p>Oh, and syntax highlighting on this blog is powered by <a href="http://pygments.org/">pygments</a>, so Ruby calls into Python!</p>
+<p>This is quite a Zoo, but it works reliably for me!</p>
+</section>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2019-05-19-consider-using-asciidoctor-for-your-next-presentation.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

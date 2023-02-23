@@ -1,0 +1,307 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>If a Tree Falls in a Forest, Does It Overflow the Stack?</title>
+  <meta name="description" content="A well-known pitfall when implementing a linked list in Rust is that the the default recursive drop implementation causes stack overflow for long lists.
+A similar problem exists for tree data structures as well.
+This post describes a couple of possible solutions for trees.
+This is a rather esoteric problem, so the article is denser than is appropriate for a tutorial.">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2022/11/18/if-a-tree-falls-in-a-forest-does-it-overflow-the-stack.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#If-a-Tree-Falls-in-a-Forest-Does-It-Overflow-the-Stack">If a Tree Falls in a Forest, Does It Overflow the Stack? <time datetime="2022-11-18">Nov 18, 2022</time></a>
+    </h1>
+<p>A well-known pitfall when implementing a linked list in Rust is that the the default recursive <code>drop</code> implementation causes stack overflow for long lists.
+A similar problem exists for tree data structures as well.
+This post describes a couple of possible solutions for trees.
+This is a rather esoteric problem, so the article is denser than is appropriate for a tutorial.</p>
+<p>Let&rsquo;s start with our beloved linked list:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Node</span>&lt;T&gt; {</code>
+<code>  value: T,</code>
+<code>  next: <span class="hl-type">Option</span>&lt;<span class="hl-type">Box</span>&lt;Node&lt;T&gt;&gt;&gt;,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span>&lt;T&gt; Node&lt;T&gt; {</code>
+<code>  <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>(value: T) <span class="hl-punctuation">-&gt;</span> Node&lt;T&gt; {</code>
+<code>    Node { value, next: <span class="hl-literal">None</span> }</code>
+<code>  }</code>
+<code>  <span class="hl-keyword">fn</span> <span class="hl-title function_">with_next</span>(<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, next: Node&lt;T&gt;) <span class="hl-punctuation">-&gt;</span> Node&lt;T&gt; {</code>
+<code>    <span class="hl-keyword">self</span>.next = <span class="hl-title function_ invoke__">Some</span>(<span class="hl-type">Box</span>::<span class="hl-title function_ invoke__">new</span>(next));</code>
+<code>    <span class="hl-keyword">self</span></code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>It&rsquo;s easy to cause this code to crash:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-meta">#[test]</span></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">stack_overflow</span>() {</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">node</span> = Node::<span class="hl-title function_ invoke__">new</span>(<span class="hl-number">0</span>);</code>
+<code>  <span class="hl-keyword">for</span> <span class="hl-variable">_</span> <span class="hl-keyword">in</span> <span class="hl-number">0</span>..<span class="hl-number">100_000</span> {</code>
+<code>    node = Node::<span class="hl-title function_ invoke__">new</span>(<span class="hl-number">0</span>).<span class="hl-title function_ invoke__">with_next</span>(node);</code>
+<code>  }</code>
+<code>  <span class="hl-title function_ invoke__">drop</span>(node) <span class="hl-comment">// boom</span></code>
+<code>}</code></pre>
+
+</figure>
+<p>The crash happens in the automatically generated recursive <code>drop</code> function.
+The fix is to write <code>drop</code> manually, in a non-recursive way:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">impl</span>&lt;T&gt; <span class="hl-built_in">Drop</span> <span class="hl-keyword">for</span> <span class="hl-title class_">Node</span>&lt;T&gt; {</code>
+<code>  <span class="hl-keyword">fn</span> <span class="hl-title function_">drop</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>) {</code>
+<code>    <span class="hl-keyword">while</span> <span class="hl-keyword">let</span> <span class="hl-variable">Some</span>(next) = <span class="hl-keyword">self</span>.next.<span class="hl-title function_ invoke__">take</span>() {</code>
+<code>      *<span class="hl-keyword">self</span> = *next;</code>
+<code>    }</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>What about trees?</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Node</span>&lt;T&gt; {</code>
+<code>  value: T,</code>
+<code>  left: <span class="hl-type">Option</span>&lt;<span class="hl-type">Box</span>&lt;Node&lt;T&gt;&gt;&gt;,</code>
+<code>  right: <span class="hl-type">Option</span>&lt;<span class="hl-type">Box</span>&lt;Node&lt;T&gt;&gt;&gt;,</code>
+<code>}</code></pre>
+
+</figure>
+<p>If the tree is guaranteed to be balanced, the automatically generated drop is actually fine, because the height of the tree will be logarithmic.
+If the tree is unbalanced though, the same stack overflow might happen.</p>
+<p>Let&rsquo;s write an iterative <code>Drop</code> to fix this.
+The problem though is that the &ldquo;swap with <code>self</code>&rdquo; trick we used for list doesn&rsquo;t work, as we have two children to recur into.
+The standard solution would be to replace a stack with an explicit vector of work times:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">impl</span>&lt;T&gt; <span class="hl-built_in">Drop</span> <span class="hl-keyword">for</span> <span class="hl-title class_">Node</span>&lt;T&gt; {</code>
+<code>  <span class="hl-keyword">fn</span> <span class="hl-title function_">drop</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>) {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">work</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>    work.<span class="hl-title function_ invoke__">extend</span>(<span class="hl-keyword">self</span>.left.<span class="hl-title function_ invoke__">take</span>());</code>
+<code>    work.<span class="hl-title function_ invoke__">extend</span>(<span class="hl-keyword">self</span>.right.<span class="hl-title function_ invoke__">take</span>());</code>
+<code>    <span class="hl-keyword">while</span> <span class="hl-keyword">let</span> <span class="hl-variable">Some</span>(node) = work.<span class="hl-title function_ invoke__">pop</span>() {</code>
+<code>      work.<span class="hl-title function_ invoke__">extend</span>(node.left.<span class="hl-title function_ invoke__">take</span>());</code>
+<code>      work.<span class="hl-title function_ invoke__">extend</span>(node.right.<span class="hl-title function_ invoke__">take</span>());</code>
+<code>    }</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>This works, but also makes my internal C programmer scream: we allocate a vector to free memory!
+Can we do better?</p>
+<p>One approach would be to build on balanced trees observation.
+If we recur into the shorter branch, and iteratively drop the longer one, we should be fine:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">impl</span>&lt;T&gt; <span class="hl-built_in">Drop</span> <span class="hl-keyword">for</span> <span class="hl-title class_">Node</span>&lt;T&gt; {</code>
+<code>  <span class="hl-keyword">fn</span> <span class="hl-title function_">drop</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>) {</code>
+<code>    <span class="hl-keyword">loop</span> {</code>
+<code>      <span class="hl-title function_ invoke__">match</span> (<span class="hl-keyword">self</span>.left.<span class="hl-title function_ invoke__">take</span>(), <span class="hl-keyword">self</span>.right.<span class="hl-title function_ invoke__">take</span>()) {</code>
+<code>        (<span class="hl-literal">None</span>, <span class="hl-literal">None</span>) =&gt; <span class="hl-keyword">break</span>,</code>
+<code>        (<span class="hl-literal">None</span>, <span class="hl-title function_ invoke__">Some</span>(it)) | (<span class="hl-title function_ invoke__">Some</span>(it), <span class="hl-literal">None</span>) =&gt; *<span class="hl-keyword">self</span> = *it,</code>
+<code>        (<span class="hl-title function_ invoke__">Some</span>(left), <span class="hl-title function_ invoke__">Some</span>(right)) =&gt; {</code>
+<code>          *<span class="hl-keyword">self</span> =</code>
+<code>            *<span class="hl-keyword">if</span> left.depth &gt; right.depth { left } <span class="hl-keyword">else</span> { right }</code>
+<code>        }</code>
+<code>      }</code>
+<code>    }</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>This requires maintaining the depths though.
+Can we make do without?
+My C instinct (not that I wrote any substantial amount of C though) would be to go down the tree, and stash the parent links into the nodes themselves.
+And we actually can do something like that:</p>
+<ul>
+<li>
+If the current node has only a single child, we can descend into the node
+</li>
+<li>
+If there are two children, we can rotate the tree. If we always rotate into a
+single direction, eventually we&rsquo;ll get into the single-child situation.
+</li>
+</ul>
+<p>Here&rsquo;s how a single rotation could look:</p>
+
+<figure>
+
+<img alt="" src="https://user-images.githubusercontent.com/1711539/202797128-87e40cf0-be55-44b3-9bdf-5dc15b33812b.png">
+</figure>
+<p>Or, in code,</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">impl</span>&lt;T&gt; <span class="hl-built_in">Drop</span> <span class="hl-keyword">for</span> <span class="hl-title class_">Node</span>&lt;T&gt; {</code>
+<code>  <span class="hl-keyword">fn</span> <span class="hl-title function_">drop</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>) {</code>
+<code>    <span class="hl-keyword">loop</span> {</code>
+<code>      <span class="hl-title function_ invoke__">match</span> (<span class="hl-keyword">self</span>.left.<span class="hl-title function_ invoke__">take</span>(), <span class="hl-keyword">self</span>.right.<span class="hl-title function_ invoke__">take</span>()) {</code>
+<code>        (<span class="hl-literal">None</span>, <span class="hl-literal">None</span>) =&gt; <span class="hl-keyword">break</span>,</code>
+<code>        (<span class="hl-literal">None</span>, <span class="hl-title function_ invoke__">Some</span>(it)) | (<span class="hl-title function_ invoke__">Some</span>(it), <span class="hl-literal">None</span>) =&gt; *<span class="hl-keyword">self</span> = *it,</code>
+<code>        (<span class="hl-title function_ invoke__">Some</span>(<span class="hl-keyword">mut</span> left), <span class="hl-title function_ invoke__">Some</span>(right)) =&gt; {</code>
+<code>          mem::<span class="hl-title function_ invoke__">swap</span>(<span class="hl-keyword">self</span>, &amp;<span class="hl-keyword">mut</span> *left);</code>
+<code>          left.left = <span class="hl-keyword">self</span>.right.<span class="hl-title function_ invoke__">take</span>();</code>
+<code>          left.right = <span class="hl-title function_ invoke__">Some</span>(right);</code>
+<code>          <span class="hl-keyword">self</span>.right = <span class="hl-title function_ invoke__">Some</span>(left);</code>
+<code>        }</code>
+<code>      }</code>
+<code>    }</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>Ok, what if we have an n-ary tree?</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Node</span>&lt;T&gt; {</code>
+<code>  value: T,</code>
+<code>  children: <span class="hl-type">Vec</span>&lt;Node&lt;T&gt;&gt;,</code>
+<code>}</code></pre>
+
+</figure>
+<p>I <em>think</em> the same approach works: we can treat the first child as <code>left</code>, and the last child as <code>right</code>, and do essentially the same rotations.
+Though, we will rotate in other direction (as removing the right child is cheaper), and we&rsquo;ll also check that we have at least two grandchildren (to avoid allocation when pushing to an empty vector).</p>
+<p>Which gives something like this:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">impl</span>&lt;T&gt; <span class="hl-built_in">Drop</span> <span class="hl-keyword">for</span> <span class="hl-title class_">Node</span>&lt;T&gt; {</code>
+<code>  <span class="hl-keyword">fn</span> <span class="hl-title function_">drop</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>) {</code>
+<code>    <span class="hl-keyword">loop</span> {</code>
+<code>      <span class="hl-keyword">let</span> <span class="hl-variable">Some</span>(<span class="hl-keyword">mut</span> right) = <span class="hl-keyword">self</span>.children.<span class="hl-title function_ invoke__">pop</span>() <span class="hl-keyword">else</span> {</code>
+<code>        <span class="hl-keyword">break</span>;</code>
+<code>      };</code>
+<code>      <span class="hl-keyword">if</span> <span class="hl-keyword">self</span>.children.<span class="hl-title function_ invoke__">is_empty</span>() {</code>
+<code>        *<span class="hl-keyword">self</span> = right;</code>
+<code>        <span class="hl-keyword">continue</span>;</code>
+<code>      }</code>
+<code>      <span class="hl-keyword">if</span> right.children.<span class="hl-title function_ invoke__">len</span>() &lt; <span class="hl-number">2</span> {</code>
+<code>        <span class="hl-keyword">self</span>.children.<span class="hl-title function_ invoke__">extend</span>(right.children.<span class="hl-title function_ invoke__">drain</span>(..));</code>
+<code>        <span class="hl-keyword">continue</span>;</code>
+<code>      }</code>
+<code>      <span class="hl-comment">// Non trivial case:</span></code>
+<code>      <span class="hl-comment">//   &gt;= 2 children,</span></code>
+<code>      <span class="hl-comment">//   &gt;= 2 grandchildren.</span></code>
+<code>      <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">me</span> = mem::<span class="hl-title function_ invoke__">replace</span>(<span class="hl-keyword">self</span>, right);</code>
+<code>      mem::<span class="hl-title function_ invoke__">swap</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>.children[<span class="hl-number">0</span>], &amp;<span class="hl-keyword">mut</span> me);</code>
+<code>      <span class="hl-comment">// Doesn&#x27;t allocate, this is the same slot</span></code>
+<code>      <span class="hl-comment">// we popped from at the start of the loop.</span></code>
+<code>      <span class="hl-keyword">self</span>.children[<span class="hl-number">0</span>].children.<span class="hl-title function_ invoke__">push</span>(me);</code>
+<code>    }</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>I am not sure this works, and I am not sure this works in linear time, but I am fairly certain that something like this could be made to work if need be.</p>
+<p>Though, practically, if something like this is a concern, you probably want to re-design the tree structure to be something like this instead:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Node</span>&lt;T&gt; {</code>
+<code>  value: T,</code>
+<code>  children: Range&lt;<span class="hl-type">usize</span>&gt;,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">Tree</span>&lt;T&gt; {</code>
+<code>   nodes: <span class="hl-type">Vec</span>&lt;Node&lt;T&gt;&gt;,</code>
+<code>}</code></pre>
+
+</figure>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2022-11-18-if-a-tree-falls-in-a-forest-does-it-overflow-the-stack.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

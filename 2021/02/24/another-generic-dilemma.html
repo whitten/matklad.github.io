@@ -1,0 +1,138 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Another Generic Dilemma</title>
+  <meta name="description" content="In The Generic Dilemma, Russ Cox observes that you can have only two of">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2021/02/24/another-generic-dilemma.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Another-Generic-Dilemma">Another Generic Dilemma <time datetime="2021-02-24">Feb 24, 2021</time></a>
+    </h1>
+<p>In <a href="https://research.swtch.com/generic">&ldquo;The Generic Dilemma&rdquo;</a>, Russ Cox observes that you can have only two of</p>
+<ul>
+<li>
+separate compilation
+</li>
+<li>
+unboxed values
+</li>
+<li>
+parametric polymorphism
+</li>
+</ul>
+<p>(but see <a href="https://www.youtube.com/watch?v=ctS8FzqcRug">1</a> and <a href="https://gankra.github.io/blah/swift-abi/">2</a> for how you can achieve a middle ground with enough compiler wizardry)</p>
+<p>Now that <a href="https://blog.golang.org/generics-proposal">Go is getting generics</a>, I want to point out another dilemma:</p>
+<p><strong><strong>Any language has parametric polymorphism, eventually</strong></strong></p>
+<p>If you start with just dynamic dispatch, you&rsquo;ll end up adding generics down the road.
+This happened with C++ and Java, and is now happening with Go.
+The last one is interesting &mdash; even if you don&rsquo;t carry accidental OOP baggage (inheritance), interfaces alone are not enough.</p>
+<p>Why does it happen?
+Well, because generics are useful for simple things.
+Even if the language special-cases several parametric data structures, like go does with slices, maps and channels, it is impossible to abstract over them.
+In particular, it&rsquo;s impossible to write <code>list_reverse</code> or <code>list_sort</code> functions without some awkward workarounds.</p>
+<p>Ok, but where&rsquo;s the dilemma?
+The dilemma is that adding parametric polymorphism to the language opens floodgates of complexity.
+At least in my experience, Rust traits, Haskell type classes, and Java generics are the main reason why some libraries in those languages are hard to use.</p>
+<p>It&rsquo;s not that generics are inherently hard, <code>fn reverse&lt;T&gt;(xs: [T]) -&gt; [T]</code> is simple.
+It&rsquo;s that they allow creating complicated solutions, and this doesn&rsquo;t play well with our human bias for complexity.</p>
+<p>One thing I am wondering is whether a polymorphic language without bounded quantification would be practical?
+Again, in my anecdotal experience, cognitive complexity soars when there are bounds on type parameters: <code>T: This&lt;S&gt; + That</code>.
+But parametric polymorphism can be useful without them:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">sort</span>&lt;T: <span class="hl-built_in">Ord</span>&gt;(xs: &amp;<span class="hl-keyword">mut</span> [T]) { ... }</code></pre>
+
+</figure>
+<p>is equivalent to</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Ord</span>&lt;T&gt; {</code>
+<code>  cmp: <span class="hl-title function_ invoke__">fn</span>(&amp;T, &amp;T) <span class="hl-punctuation">-&gt;</span> Ordering</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">sort</span>&lt;T&gt;(ord: <span class="hl-built_in">Ord</span>&lt;T&gt;, xs: &amp;<span class="hl-keyword">mut</span> [T]) { ... }</code></pre>
+
+</figure>
+<p>Can we build an entire language out of this pattern?</p>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2021-02-24-another-generic-dilemma.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

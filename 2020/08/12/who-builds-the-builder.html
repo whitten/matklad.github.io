@@ -1,0 +1,131 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Who Builds the Builder?</title>
+  <meta name="description" content="This is a short note on the builder pattern, or, rather, on the builder method pattern.">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2020/08/12/who-builds-the-builder.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Who-Builds-the-Builder">Who Builds the Builder? <time datetime="2020-08-12">Aug 12, 2020</time></a>
+    </h1>
+<p>This is a short note on the builder pattern, or, rather, on the builder <em>method</em> pattern.</p>
+<p>TL;DR: if you have <code>Foo</code> and <code>FooBuilder</code>, consider adding a <code>builder</code> method to <code>Foo</code>:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Foo</span> { ... }</code>
+<code></code>
+<code><span class="hl-meta">#[derive(Default)]</span></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">FooBuilder</span> { ... }</code>
+<code></code>
+<code><span class="hl-keyword">impl</span> <span class="hl-title class_">Foo</span> {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">builder</span>() <span class="hl-punctuation">-&gt;</span> FooBuilder {</code>
+<code>        FooBuilder::<span class="hl-title function_ invoke__">default</span>()</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span> <span class="hl-title class_">FooBuilder</span> {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">build</span>(<span class="hl-keyword">self</span>) <span class="hl-punctuation">-&gt;</span> Foo { ... }</code>
+<code>}</code></pre>
+
+</figure>
+<p>A more minimal solution is to rely just on <code>FooBuilder::default</code> or <code>FooBuilder::new</code>.
+There are two problems with that:</p>
+<p><em>First</em>, it is hard to discover.
+Nothing in the docs/signature of <code>Foo</code> mentions <code>FooBuilder</code>, you need to look elsewhere to learn how to create a <code>Foo</code>.
+I remember being puzzled at how to create a <a href="https://docs.rs/globset/0.4.5/globset/struct.GlobSet.html"><code>GlobSet</code></a> for exactly this reason.
+In contrast, the <code>builder</code> method is right there on <code>Foo</code>, probably the first one.</p>
+<p><em>Second</em>, it is more annoying to use, as you need to import <em>both</em> <code>Foo</code> and <code>FooBuilder</code>.
+With <code>Foo::builder</code> method often only one import suffices, as you don&rsquo;t need to name the builder type.</p>
+<p>Case studies:</p>
+<ul>
+<li>
+<a href="https://github.com/rust-analyzer/rust-analyzer/commit/7510048ec0a5d5e7136e3ea258954eb244d15baf"><code>TextEdit::build</code></a> from rust-analyzer.
+</li>
+<li>
+<a href="https://doc.rust-lang.org/std/fs/struct.File.html#method.with_options"><code>File::with_options</code></a> from std.
+</li>
+<li>
+<a href="https://docs.rs/http/0.2.1/http/request/struct.Request.html#method.builder"><code>Request</code></a> and <a href="https://docs.rs/http/0.2.1/http/response/struct.Response.html#method.builder"><code>Response</code></a> from http.
+</li>
+</ul>
+<p>Discussion on <a href="https://www.reddit.com/r/rust/comments/i8kofk/blog_post_who_builds_the_builder/">/r/rust</a>.</p>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2020-08-12-who-builds-the-builder.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

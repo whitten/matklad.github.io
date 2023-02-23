@@ -1,0 +1,152 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Why Linux Troubleshooting Advice Sucks</title>
+  <meta name="description" content="A short post on how to create better troubleshooting documentation, prompted by me spending last evening trying to get builtin display of my laptop working with Linux.">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2022/10/19/why-linux-troubleshooting-advice-sucks.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Why-Linux-Troubleshooting-Advice-Sucks">Why Linux Troubleshooting Advice Sucks <time datetime="2022-10-19">Oct 19, 2022</time></a>
+    </h1>
+<p>A short post on how to create better troubleshooting documentation, prompted by me spending last evening trying to get builtin display of my laptop working with Linux.</p>
+<p>What finally fixed the blank screen for me was this advice from NixOS wiki:</p>
+
+<aside class="block">
+<div class="title">12th Gen (Alder Lake)</div>
+<p>X Server may fail to start with the newer 12th generation, Alder Lake, iRISxe integrated graphics chips.
+If this is the case, you can give the kernel a hint as to what driver to use.
+First confirm the graphic chip&rsquo;s device ID by running in a terminal:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-title function_">$</span> nix-shell -p pciutils --run "lspci | grep VGA"</code>
+<code><span class="hl-output">00:02.0 VGA compatible controller: Intel Corporation Device 46a6 (rev 0c)</span></code></pre>
+
+</figure>
+<p>In this example, &ldquo;46a6&rdquo; is the device ID. You can then add this to your configuration and reboot:</p>
+
+<figure class="code-block">
+
+
+<pre><code>boot.kernelParams = [ "i915.force_probe=46a6" ];</code></pre>
+
+</figure>
+
+</aside>
+  <p>While this particular approach worked, in contrast to a dozen different ones I tried before, I think it shares a very common flaw, which is endemic to troubleshooting documentation.
+Can you spot it?</p>
+<p>The advice tells you the remedy (&ldquo;add this kernel parameter&rdquo;), but it doesn&rsquo;t explain how to verify that this indeed is the problem.
+That is, if the potential problem is a not loaded kernel driver, it would really help me to know how to check which kernel driver is in use, so that I can do both:</p>
+<ul>
+<li>
+<em>Before</em> adding the parameter, check that <code>46a6</code> doesn&rsquo;t have a driver
+</li>
+<li>
+<em>After</em> the fix, verify that <code>i915</code> is indeed used.
+</li>
+</ul>
+<p>If a &ldquo;fix&rdquo; doesn&rsquo;t come with a linked &ldquo;diagnostic&rdquo;, a very common outcome is:</p>
+<ol>
+<li>
+Apply some random fix from the Internet
+</li>
+<li>
+Observe that the final problem (blank screen) isn&rsquo;t fixed
+</li>
+<li>
+Wonder which of the two is the case:
+<ul>
+<li>
+the fix is not relevant for the problem,
+</li>
+<li>
+the fix is relevant, but is applied wrong.
+</li>
+</ul>
+</li>
+</ol>
+<p>So, call to action: if you are writing any kind of documentation, before explaining how to <em>fix</em> the problem, teach the user how to <em>diagnose</em> it.</p>
+<p>When helping with <code>git</code>, start with explaining <code>git log</code> and <code>git status</code>, not with <code>git reset</code> or <code>git reflog</code>.</p>
+<hr>
+<p>While the post might come as just a tiny bit angry, I want to explicitly mention that I am eternally grateful to all the people who write <em>any</em> kind of docs for using Linux on desktop.
+I&rsquo;ve been running it for more than 10 years at this point, and I am still completely clueless as to how debug issues from the first principles.
+If not for all of the wikis, stackoverflows and random forum posts out there, I wouldn&rsquo;t be able to use the OS, so thank you all!</p>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2022-10-19-why-linux-troubleshooting-advice-sucks.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

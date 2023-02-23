@@ -1,0 +1,307 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Delete Cargo Integration Tests</title>
+  <meta name="description" content="Click bait title!
+We'll actually look into how integration and unit tests are implemented in Cargo.
+A few guidelines for organizing test suites in large Cargo projects naturally arise out of these implementation differences.
+And, yes, one of those guidelines will turn out to be: delete all integration tests but one.">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2021/02/27/delete-cargo-integration-tests.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Delete-Cargo-Integration-Tests">Delete Cargo Integration Tests <time datetime="2021-02-27">Feb 27, 2021</time></a>
+    </h1>
+<p>Click bait title!
+We&rsquo;ll actually look into how integration and unit tests are implemented in Cargo.
+A few guidelines for organizing test suites in large Cargo projects naturally arise out of these implementation differences.
+And, yes, one of those guidelines will turn out to be: &ldquo;delete all integration tests but one&rdquo;.</p>
+<p>Keep in mind that this post is explicitly only about Cargo concepts.
+It doesn&rsquo;t discuss relative merits of integration or unit styles of testing.
+I&rsquo;d love to, but that&rsquo;s going to be a loooong article some other day!</p>
+<section id="Loomings">
+
+    <h2>
+    <a href="#Loomings">Loomings 🐳 </a>
+    </h2>
+<p>When you use Cargo, you can put <code>#[test]</code> functions directly next to code, in files inside <code>src/</code> directory.
+Alternatively, you can put them into dedicated files inside <code>tests/</code>:</p>
+
+<figure class="code-block">
+
+
+<pre><code>awesomeness-rs/</code>
+<code>  Cargo.toml</code>
+<code class="hl-line">  src/          # unit tests go here</code>
+<code>    lib.rs</code>
+<code>    submodule.rs</code>
+<code>    submodule/</code>
+<code>      tests.rs</code>
+<code></code>
+<code class="hl-line">  tests/        # integration tests go here</code>
+<code>    is_awesome.rs</code></pre>
+
+</figure>
+<p>I stress that unit/integration terminology is based purely on the location of the <code>#[test]</code> functions, and not on what those functions actually do.</p>
+<p>To build unit tests, Cargo runs</p>
+
+<figure class="code-block">
+
+
+<pre><code>rustc --test src/lib.rs</code></pre>
+
+</figure>
+<p>Rustc then compiles the library with <code>--cfg test</code>.
+It also injects a generated <code>fn main()</code>, which invokes all functions annotated with <code>#[test]</code>.
+The result is an executable file which, when run subsequently by Cargo, executes the tests.</p>
+<p>Integration tests are build differently.
+First, Cargo uses <code>rustc</code> to compile the library as usual, <em>without</em> <code>--cfg test</code>:</p>
+
+<figure class="code-block">
+
+
+<pre><code>rustc --crate-type=rlib src/lib.rs</code></pre>
+
+</figure>
+<p>This produces an <code>.rlib</code> file &mdash; a compiled library.</p>
+<p>Then, for <em>each</em> file in the tests directory, Cargo runs the equivalent of</p>
+
+<figure class="code-block">
+
+
+<pre><code>rustc --test --extern awesomeness=path/to/awesomeness.rlib \</code>
+<code>    ./tests/is_awesome.rs</code></pre>
+
+</figure>
+<p>That is, each integration test is compiled into a separate binary.
+Running those binaries executes the test functions.</p>
+</section>
+<section id="Implications">
+
+    <h2>
+    <a href="#Implications">Implications </a>
+    </h2>
+<p>Note that <code>rustc</code> needs to repeatedly re-link the library crate with each of the integration tests.
+This can add up to a significant compilation time blow up for tests.
+That is why I recommend that large projects should have only one integration test crate with several modules.
+That is, don&rsquo;t do this:</p>
+
+<figure class="code-block">
+
+
+<pre><code>tests/</code>
+<code>  foo.rs</code>
+<code>  bar.rs</code></pre>
+
+</figure>
+<p>Do this instead:</p>
+
+<figure class="code-block">
+
+
+<pre><code>tests/</code>
+<code>  integration/</code>
+<code>    main.rs</code>
+<code>    foo.rs</code>
+<code>    bar.rs</code></pre>
+
+</figure>
+<p>When a refactoring along these lines was applied to Cargo itself, the effects were substantial (<a href="https://github.com/rust-lang/cargo/pull/5022#issuecomment-364691154">numbers</a>).
+The time to compile the test suite decreased 3x.
+The size of on-disk artifacts decreased 5x.</p>
+<p>It can&rsquo;t get better than this, right?
+Wrong!
+Rust tests by default are run in parallel.
+The <code>main</code> that is generated by <code>rustc</code> spawns several threads to saturate all of the CPU cores.
+However, Cargo itself runs test binaries sequentially.
+This makes sense &mdash; otherwise, concurrently executing test binaries oversubscribe the CPU.
+But this means that multiple integration tests leave performance on the table.
+The critical path is the sum of longest tests in each binary.
+The more binaries, the longer the path.
+For one of my projects, consolidating several integration tests into one reduced the time to run the test suite from 20 seconds to just 13.</p>
+<p>A nice side-effect of a single modularized integration test is that sharing the code between separate tests becomes trivial, you just pull it into a submodule.
+There&rsquo;s no need to awkwardly repeat <code>mod common;</code> for each integration test.</p>
+</section>
+<section id="Rules-of-Thumb">
+
+    <h2>
+    <a href="#Rules-of-Thumb">Rules of Thumb </a>
+    </h2>
+<p>If the project I am working with is small, I don&rsquo;t worry about test organization.
+There&rsquo;s no need to make tests twice as fast if they are already nearly instant.</p>
+<p>Conversely, if the project is large (a workspace with many crates) I worry about test organization a lot.
+Slow tests are a boiling frog kind of problem.
+If you do not proactively fix it, everything is fine up until the moment you realize you need to sink a week to untangle the mess.</p>
+<p>For a library with a public API which is published to crates.io, I avoid unit tests.
+Instead, I use a single integration tests, called <strong><code>it</code></strong> (<strong>i</strong>ntegration <strong>t</strong>est):</p>
+
+<figure class="code-block">
+
+
+<pre><code>tests/</code>
+<code>  it.rs</code>
+<code></code>
+<code># Or, for larger crates</code>
+<code></code>
+<code>tests/</code>
+<code>  it/</code>
+<code>    main.rs</code>
+<code>    foo.rs</code>
+<code>    bar.rs</code></pre>
+
+</figure>
+<p>Integration tests use the library as an external crate.
+This forces the usage of the same public API that consumers use, resulting in a better design feedback.</p>
+<p>For an internal library, I avoid integration tests all together.
+Instead, I use Cargo unit tests for &ldquo;integration&rdquo; bits:</p>
+
+<figure class="code-block">
+
+
+<pre><code>src/</code>
+<code>  lib.rs</code>
+<code>  tests.rs</code>
+<code>  tests/</code>
+<code>    foo.rs</code>
+<code>    bar.rs</code></pre>
+
+</figure>
+<p>That way, I avoid linking the separate integration tests binary altogether.
+I also have access to non-<code>pub</code> API of the crate, which is often useful.</p>
+</section>
+<section id="Assorted-Tricks">
+
+    <h2>
+    <a href="#Assorted-Tricks">Assorted Tricks </a>
+    </h2>
+<p><em>First</em>, documentation tests are extremely slow.
+Each doc test is linked as a separate binary.
+For this reason, avoid doc tests in internal libraries for big projects and add this to <code>Cargo.toml</code>:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-section">[lib]</span></code>
+<code><span class="hl-attr">doctest</span> = <span class="hl-literal">false</span></code></pre>
+
+</figure>
+<p><em>Second</em>, prefer</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-meta">#[cfg(test)]</span></code>
+<code><span class="hl-keyword">mod</span> tests; <span class="hl-comment">// tests in `tests.rs` file</span></code></pre>
+
+</figure>
+<p>to</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-meta">#[cfg(test)]</span></code>
+<code><span class="hl-keyword">mod</span> tests {</code>
+<code>    <span class="hl-comment">// tests here</span></code>
+<code>}</code></pre>
+
+</figure>
+<p>This way, when you modify just the tests, the cargo is smart to not recompile the library crate.
+It knows that the contents of <code>tests.rs</code> only affects compilation when <code>--test</code> is passed to rustc.
+Learned this one from <a href="https://github.com/petrochenkov">@petrochenkov</a>, thanks!</p>
+<p><em>Third</em>, even if you stick to unit tests, the library is recompiled twice: once with, and once without <code>--test</code>.
+For this reason, folks from <a href="https://pernos.co">pernosco</a> go even further.
+They add</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-section">[lib]</span></code>
+<code><span class="hl-attr">test</span> = <span class="hl-literal">false</span></code></pre>
+
+</figure>
+<p>to <code>Cargo.toml</code>, make all APIs they want to unit test public and have a single test crate for the whole workspace.
+This crates links everything and contains all the unit tests.</p>
+<p>Discussion on <a href="https://old.reddit.com/r/rust/comments/lto0qa/blog_post_delete_cargo_integration_tests/">/r/rust</a>.</p>
+
+<aside class="admn note">
+<i class="fa fa-info-circle"></i>
+<div><p>This post is a part of <a href="https://matklad.github.io/2021/09/05/Rust100k.html">One Hundred Thousand Lines of Rust</a> series.</p>
+</div>
+</aside></section>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2021-02-27-delete-cargo-integration-tests.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

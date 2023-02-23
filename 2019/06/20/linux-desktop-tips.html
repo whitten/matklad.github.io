@@ -1,0 +1,342 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linux Desktop Tips</title>
+  <meta name="description" content="Over time I have accumulated a number of tricks and hacks that make linux desktop more natural for me.
+Today I've discovered another one: a way to minimize Firefox on close.
+This seems like a good occasion to write about things I've been doing!">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2019/06/20/linux-desktop-tips.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Linux-Desktop-Tips">Linux Desktop Tips <time datetime="2019-06-20">Jun 20, 2019</time></a>
+    </h1>
+<p>Over time I have accumulated a number of tricks and hacks that make &ldquo;linux desktop&rdquo; more natural for me.
+Today I&rsquo;ve discovered another one: a way to minimize Firefox on close.
+This seems like a good occasion to write about things I&rsquo;ve been doing!</p>
+<section id="Window-Switching">
+
+    <h2>
+    <a href="#Window-Switching">Window Switching </a>
+    </h2>
+<p>I&rsquo;ve never understood the appeal of multiple desktops, tiling window managers,
+or Mac style &ldquo;full screen window is outside of your desktop&rdquo;.
+They for sure let you to neatly organize several applications at once, but I never need an overview of all applications.
+What I need most of the time is switching to a specific application, like a browser.</p>
+<p>Windows has a feature for this, that fits this workflow perfectly.
+If you pin an application to start menu, then <kbd><kbd>win </kbd>+<kbd> number</kbd></kbd> will launch or focus that app.
+That is, if the app is already running, its window will be raised and focused.</p>
+<p>For some reason, this is not available out of the box in any of the Linux window
+managers I&rsquo;ve tried. What is easy is binding launching an application to a
+shortcut, but I rarely use more than once instance of Firefox!</p>
+<p>Luckily, <a href="https://github.com/mkropat/jumpapp">jumpapp</a> is exactly what is needed
+to implement this properly.</p>
+<p>I use <a href="https://wiki.archlinux.org/index.php/Xbindkeys">Xbindkeys</a> for global
+shortcuts, with the following config:</p>
+
+<figure class="code-block">
+<figcaption class="title">~/.xbindkeysrc</figcaption>
+
+
+<pre><code>"jumpapp -m kitty"</code>
+<code>  F1</code>
+<code></code>
+<code>"jumpapp -m firefox"</code>
+<code>  F2</code>
+<code></code>
+<code>"jumpapp -m code"</code>
+<code>  F3</code></pre>
+
+</figure>
+<p>Note that I bind <kbd><kbd>F?</kbd></kbd> keys without any modifiers: these keys are rarely used
+by applications and are very convenient for personal use.</p>
+</section>
+<section id="Drop-Down-Terminal">
+
+    <h2>
+    <a href="#Drop-Down-Terminal">Drop Down Terminal </a>
+    </h2>
+<p>I&rsquo;ve always liked Quake-style terminals, which you can bring to front with a
+single keypress.
+For this reason, I was stuck with
+<a href="https://kde.org/applications/system/org.kde.yakuake">yakuake</a> for a really long time.</p>
+<p><code>jumpapp</code> allows me to use any terminal in
+this fashion, so now I use full screen <a href="https://sw.kovidgoyal.net/kitty/">kitty</a>.</p>
+</section>
+<section id="Window-Tiling">
+
+    <h2>
+    <a href="#Window-Tiling">Window Tiling </a>
+    </h2>
+<p>Because switching windows/applications is easy for me, I typically look at a single maximized window.
+However, sometimes I like to have two windows side-by-side, for example an editor and a browser with preview.
+A full blown tiling window manager will be an overkill for this use-case, but another Windows feature comes in handy.
+In Windows, <kbd><kbd>Win </kbd>+<kbd> ←</kbd></kbd> and <kbd><kbd>Win </kbd>+<kbd> →</kbd></kbd> tiles active window to the left and right side of the screen.
+Luckily, this <em>is</em> a built in feature in most window managers, including KWin and Openbox (the two I use the most).</p>
+</section>
+<section id="Screen-Real-Estate">
+
+    <h2>
+    <a href="#Screen-Real-Estate">Screen Real Estate </a>
+    </h2>
+<p>This one is tricky!
+On one hand, because I use one maximized window at a time, I feel comfortable with smaller displays.
+I was even disappointed with a purchase of external display for my laptop: turns out, bigger screen doesn&rsquo;t really help me!
+On the other hand, I really like when all pixels I have are utilized fully.</p>
+<p>I&rsquo;ve tried to work in full screen windows, but that wasn&rsquo;t very convenient for two reasons:</p>
+<ul>
+<li>
+Tray area is useful for current time, other status information, and notifications.
+</li>
+<li>
+Full screen doesn&rsquo;t play well with <code>jumpapp</code> window switching.
+</li>
+</ul>
+<p>After some experiments, I&rsquo;ve settled with the following setup:</p>
+<ul>
+<li>
+<p>Use of maximized, but not full screen windows.</p>
+</li>
+<li>
+<p>When window is maximized, its borders and title bar are hidden. To do this in <code>kwin</code> add the following to <code>~/.config/kwinrc</code>:</p>
+
+<figure class="code-block">
+
+
+<pre><code>[Windows]</code>
+<code>BorderlessMaximizedWindows=true</code></pre>
+
+</figure>
+</li>
+<li>
+<p>To still have an ability to close/minimize the window with the mouse, I use <a href="https://store.kde.org/p/998910/">Active Window Menu</a> Plasmoid.
+What it does is that it packs window title and close/maximize/minimize buttons into the desktop panel, without spending extra pixels:</p>
+
+<figure>
+
+<img alt="" src="/assets/active-window.png">
+</figure>
+</li>
+</ul>
+<p>Another thing I&rsquo;ve noticed is that I look to the bottom side of the screen much more often.
+For this reason, I move desktop panel to the top.
+You can imagine how inconvenient Mac&rsquo;s dock is for me: it wastes so many pixels in the most important area of the display :-)</p>
+</section>
+<section id="Keybindings">
+
+    <h2>
+    <a href="#Keybindings">Keybindings </a>
+    </h2>
+<p>After several years of using Emacs and a number of short detours into Vim-land, I grew a profound dislike for the arrow keys.
+It&rsquo;s not that they make me slower: they distract me because I need to think about moving my hands.</p>
+<p>For the long time I&rsquo;ve tried to banish arrow keys from my life by making every
+application understand <kbd><kbd>ctrl</kbd>+<kbd>b</kbd></kbd>, <kbd><kbd>ctrl</kbd>+<kbd>f</kbd></kbd> and the like.
+But that was always a whack-a-mole game without a chance to win.</p>
+<p>A much better approach is <a href="https://manybutfinite.com/post/home-row-computing/">Home Row Computing</a>.
+I rebind, on the low level, <kbd><kbd>CapsLock </kbd>+<kbd> i/j/k/l</kbd></kbd> to arrow keys.
+This works in every app.
+It also works with <kbd><kbd>alt</kbd></kbd> and <kbd><kbd>shift</kbd></kbd> modifiers.</p>
+<p>I use <a href="https://jlk.fjfi.cvut.cz/arch/manpages/man/xkbcomp.1">xkbcomp</a> with <a href="https://github.com/matklad/config/blob/ed588057545276e05ea4979ea7086addc3724a4e/home-row.xkb">this config</a> to set this up.
+I have no idea how this actually works :-)</p>
+</section>
+<section id="File-Organization">
+
+    <h2>
+    <a href="#File-Organization">File Organization </a>
+    </h2>
+<p>I used to pile up <strong>everything</strong> on the desktop.
+But now my desktop is completely empty, and I enjoy uncluttered view of
+<a href="https://upload.wikimedia.org/wikipedia/commons/d/d8/Pieter_Bruegel_the_Elder_-_Hunters_in_the_Snow_%28Winter%29_-_Google_Art_Project.jpg">The Hunters in the Snow</a>
+every time I boot my laptop.</p>
+<p>The trick is to realize that accreting &ldquo;junk&rdquo; files is totally normal, and
+&ldquo;just don&rsquo;t put garbage on desktop&rdquo; is not a solution.
+Instead, one can create a dedicated place for hoarding.</p>
+<p>I have two of those:</p>
+<ul>
+<li>
+<code>~/downloads</code> which I remove automatically on every reboot
+</li>
+<li>
+<code>~/tmp</code> which I <code>rm -fr ~/tmp</code> manually once in a while
+</li>
+</ul>
+</section>
+<section id="Shell">
+
+    <h2>
+    <a href="#Shell">Shell </a>
+    </h2>
+<p>I used to use <code>Zsh</code> with a bunch of plugins, hoping that I&rsquo;ll learn <code>bash</code> this way.
+I still google &ldquo;How to <code>if</code> in bash?&rdquo; every single time though.</p>
+<p>For this reason, I&rsquo;ve switched to <a href="http://fishshell.com/">fish</a> with mostly default config.
+The killer feature for me is autosuggestions: completion of the commands based on the history.
+<code>Zsh</code> has something similar, via a plugin, but this crucial feature works in <code>fish</code> out of the box.</p>
+<p>One slightly non-standard thing I do is a two-line prompt that looks like this:</p>
+
+<figure class="code-block">
+
+
+<pre><code>02:43:39|~/.config</code>
+<code>λ</code></pre>
+
+</figure>
+<p>Two line prompts are great! You can always see a full working directory, and commands are always visually in the same place.
+Having current time in the prompt is also useful in case you run a long command and forget to <code>time</code> it.</p>
+</section>
+<section id="Minimizing-Firefox">
+
+    <h2>
+    <a href="#Minimizing-Firefox">Minimizing Firefox </a>
+    </h2>
+<p>Finally, the direct cause of this post!</p>
+<p>I don&rsquo;t use a lot of desktop apps, but I keep a browser with at least five tabs for different messaging apps.
+By the way, <a href="https://addons.mozilla.org/en-US/firefox/addon/tree-style-tab/">Tree Style Tab</a> is the best tool for taming modern &ldquo;<code>apps</code>&rdquo;!</p>
+<p>The problem with this is that I automatically <kbd><kbd>Alt</kbd>+<kbd>F4</kbd></kbd> Firefox once I am done with it, but launching it every time is slow.
+Ideally, I want to minimize it on close, just how I do with qBittorrent and Telegram.
+Unfortunately, there&rsquo;s no built-in feature for this in Firefox.</p>
+<p>I once tried to build it with <code>Xbindkeys</code> and <code>Xdotool</code>.
+The idea was to intercept <kbd><kbd>Alt</kbd>+<kbd>F4</kbd></kbd> and minize active window if it is Firefox.
+That didn&rsquo;t work too well: to close all other applications, I tried to forward <kbd><kbd>Alt</kbd>+<kbd>F4</kbd></kbd>, but that recursed badly :-)</p>
+<p>Luckily, today I&rsquo;ve realized that I can write a KWin script for this!
+This turned out to be much harder than anticipated, because the docs are thin and setup is fiddly.</p>
+<p><a href="https://zren.github.io/2019/03/14/quick-tile-an-app-when-it-opens-using-a-kwin-script">This
+post</a> was instrumental for me to figure this stuff out. Thanks Chris!</p>
+<p>I&rsquo;ve created two files:</p>
+
+<figure class="code-block">
+<figcaption class="title">~/.local/share/kwin/scripts/SmartCloseWindow/metadata.desktop</figcaption>
+
+
+<pre><code>[Desktop Entry]</code>
+<code>Name=Smart Close Window</code>
+<code>Comment=</code>
+<code>Icon=preferences-system-windows-script-test</code>
+<code></code>
+<code>Type=Service</code>
+<code></code>
+<code>X-Plasma-API=javascript</code>
+<code>X-Plasma-MainScript=code/main.js</code>
+<code>X-KDE-ServiceTypes=KWin/Script</code>
+<code></code>
+<code>X-KDE-PluginInfo-Name=SmartCloseWindow # Note, the same name as the dir</code>
+<code>X-KDE-PluginInfo-Author=matklad</code>
+<code>X-KDE-PluginInfo-Email=...</code>
+<code>X-KDE-PluginInfo-License=GPL</code>
+<code>X-KDE-PluginInfo-Version=3</code></pre>
+
+</figure>
+
+<figure class="code-block">
+<figcaption class="title">~/.local/share/kwin/scripts/SmartCloseWindow/contents/code/main.js</figcaption>
+
+
+<pre><code>registerShortcut("Smart Close Window.",</code>
+<code>    "Smart Close Window.",</code>
+<code>    "alt+f4",</code>
+<code>    function () {</code>
+<code>        var c = workspace.activeClient;</code>
+<code>        if (c.caption.indexOf("Firefox") == -1) {</code>
+<code>            c.closeWindow();</code>
+<code>        } else {</code>
+<code>            c.minimized = true;</code>
+<code>        }</code>
+<code>    });</code></pre>
+
+</figure>
+<p>After than, I&rsquo;ve ticked a box in front of <code>Smart Close Window</code> in <span class="menu">System Settings <i class="fa fa-angle-right"></i> Window Management <i class="fa fa-angle-right"></i> KWin Scripts</span> and
+added a shortcut in <span class="menu">System Settings <i class="fa fa-angle-right"></i> Shortcuts <i class="fa fa-angle-right"></i> Global Shortcuts <i class="fa fa-angle-right"></i> System Settings</span>.
+The last step took a while fo figure out: although it looks like we set shortcut in the script itself, this doesn&rsquo;t actually work for some reason.</p>
+</section>
+<section id="Linux-Distribution">
+
+    <h2>
+    <a href="#Linux-Distribution">Linux Distribution </a>
+    </h2>
+<p>Finally, my life has become significancy easier since I&rsquo;ve settled on <a href="https://nixos.org/">NixOS</a>.
+I had mainly used <a href="https://www.archlinux.org/">Arch</a> and a bit of <a href="https://ubuntu.com/">Ubuntu</a> before, but NixOS is so much easier to control.
+I highly recommend to check it out!</p>
+</section>
+<section id="My-Dotfiles">
+
+    <h2>
+    <a href="#My-Dotfiles">My Dotfiles </a>
+    </h2>
+<p>Most of the stuff in this post is codified in my config repo: <a href="https://github.com/matklad/config">https://github.com/matklad/config</a>.</p>
+</section>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2019-06-20-linux-desktop-tips.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

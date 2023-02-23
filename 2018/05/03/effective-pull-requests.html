@@ -1,0 +1,257 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Effective Pull Requests</title>
+  <meta name="description" content="Recently I've been sending a lot of pull requests to various GitHub-hosted
+projects. It had been a lot of trial and error before I settled on the git
+workflow which doesn't involve Nah, I'll just rm -rf this folder and do a
+fresh git clone somewhere. This post documents the workflow. In a nutshell,
+it is">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2018/05/03/effective-pull-requests.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Effective-Pull-Requests">Effective Pull Requests <time datetime="2018-05-03">May 3, 2018</time></a>
+    </h1>
+<p>Recently I&rsquo;ve been sending a lot of pull requests to various GitHub-hosted
+projects. It had been a lot of trial and error before I settled on the git
+workflow which doesn&rsquo;t involve &ldquo;Nah, I&rsquo;ll just <code>rm -rf</code> this folder and do a
+fresh <code>git clone</code>&rdquo; somewhere. This post documents the workflow. In a nutshell,
+it is</p>
+<ul>
+<li>
+do not use the master branch for pull requests
+</li>
+<li>
+use the master branch to track upstream repository
+</li>
+<li>
+automate
+</li>
+</ul>
+<p>Note that <a href="https://hub.github.com/">hub</a> utility exist to handle these issues
+automatically. I personally haven&rsquo;t used for no real reason, you definitely
+should check it out!</p>
+<section id="Avoiding-the-master-branch">
+
+    <h2>
+    <a href="#Avoiding-the-master-branch">Avoiding the master branch </a>
+    </h2>
+<p>The natural thing to do, when sending a pull request, is to fork the upstream
+repository, <code>git clone</code> your fork locally, make a fix, <code>git commit -am</code> and
+<code>git push</code> it to the master branch of your fork and then send a PR.</p>
+<p>It even seems to work at first, but breaks down in these two cases:</p>
+<ul>
+<li>
+<p>You want to send a second PR, and now you don&rsquo;t have a clean branch
+to base your work off.</p>
+</li>
+<li>
+<p>The upstream was updated, your PR does not merge cleanly anymore,
+you need to do a rebase, but you don&rsquo;t have a clean branch to rebase
+onto.</p>
+</li>
+</ul>
+<p><strong>Tip 1: always start with creating a feature branch for PR:</strong></p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-title function_">$</span> git clone git@github.com:matklad/cargo.git &amp;&amp; cd cargo</code>
+<code><span class="hl-title function_">$</span> git checkout -b long-and-descriptive-name-of-the-pr-branch</code>
+<code><span class="hl-title function_">$</span> $EDITOR hack-hack-hack</code></pre>
+
+</figure>
+<p>However it is easy to forget this step, so it is important to be able
+to move to a separate branch after you erroneously committed code to
+master. It is also crucial to reset <code>master</code> to clean state, otherwise
+you&rsquo;ll face some bewildering merge conflicts, when you try to update
+your fork several days later.</p>
+<p><strong>Tip 2: don&rsquo;t forget to reset master after a mix-up:</strong></p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-title function_">$</span> git clone git@github.com:matklad/cargo.git &amp;&amp; cd cargo</code>
+<code><span class="hl-title function_">$</span> $EDITOR hack-hack-hack</code>
+<code><span class="hl-title function_">$</span> git commit -am'A very important fix'</code>
+<code><span class="hl-title function_">$</span> echo "urgh, should have done this on a separate branch"</code>
+<code><span class="hl-output"></span></code>
+<code><span class="hl-title function_">$</span> git branch pr-branch</code>
+<code><span class="hl-title function_">$</span> git reset --hard origin/master</code>
+<code><span class="hl-title function_">$</span> git checkout pr-branch</code></pre>
+
+</figure>
+<p><strong><strong>Update:</strong></strong> I&rsquo;ve learned that magit has a dedicated utility for this &ldquo;create a
+branch and reset <code>master</code> to a clean state&rdquo; workflow &ndash; <code>git spinoff</code>.
+My implementation is <a href="https://github.com/matklad/config/blob/514210829551054c982aec71c6d9b11ebae3f22f/xtool/src/git_spinoff.rs">here</a>.</p>
+</section>
+<section id="Syncing-with-upstream">
+
+    <h2>
+    <a href="#Syncing-with-upstream">Syncing with upstream </a>
+    </h2>
+<p>If you work regularly on a particular project, you&rsquo;d want to keep your
+fork in sync with upstream repository. One way to do that would be to
+add upstream repository as a git remote, and set the local master
+branch to track the master from upstream:</p>
+<p><strong>Tip 3: tracking remote repository</strong></p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-title function_">$</span> git clone git@github.com:matklad/cargo.git &amp;&amp; cd cargo</code>
+<code><span class="hl-title function_">$</span> git remote add upstream git@github.com:rust-lang/cargo.git</code>
+<code><span class="hl-title function_">$</span> git fetch remote</code>
+<code><span class="hl-title function_">$</span> git branch --set-upstream-to=upstream/master</code></pre>
+
+</figure>
+<p>With this setup, you can easily update your pull request if they don&rsquo;t
+merge cleanly because of upstream changes:</p>
+<p><strong><strong>Tip 4: updating a PR</strong></strong></p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-title function_">$</span> git checkout master &amp;&amp; git pull --rebase</code>
+<code><span class="hl-title function_">$</span> git checkout pr-branch</code>
+<code><span class="hl-title function_">$</span> git rebase master</code></pre>
+
+</figure>
+<p><strong><strong>Update:</strong></strong> worth automating as well, here&rsquo;s my <a href="https://github.com/matklad/config/blob/514210829551054c982aec71c6d9b11ebae3f22f/xtool/src/git_refresh.rs"><code>git
+refresh</code></a></p>
+</section>
+<section id="Automating">
+
+    <h2>
+    <a href="#Automating">Automating </a>
+    </h2>
+<p>There are several steps to get the repo setup just right, and doing it
+manually every time would lead to errors and mysterious merge
+conflicts. It might be useful to define a shell function to do this
+for you! It could look like this</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-comment"># calling `gcf rust-lang/cargo` would clone github.com/matklad/cargo,</span></code>
+<code><span class="hl-comment"># and setup upstream properly</span></code>
+<code><span class="hl-keyword">function</span> <span class="hl-function"><span class="hl-title">gcf</span></span>() {</code>
+<code>    <span class="hl-built_in">local</span> userrepo=<span class="hl-variable">$1</span></code>
+<code>    <span class="hl-built_in">local</span> repo=`<span class="hl-built_in">basename</span> <span class="hl-variable">$userrepo</span>`</code>
+<code>    git <span class="hl-built_in">clone</span> git@github.com:matklad/<span class="hl-variable">$repo</span>.git</code>
+<code>    <span class="hl-built_in">pushd</span> <span class="hl-variable">$repo</span></code>
+<code>    git remote add upstream git@github.com:<span class="hl-variable">$userrepo</span>.git</code>
+<code>    git fetch upstream</code>
+<code>    git checkout master</code>
+<code>    git branch --set-upstream-to=upstream/master</code>
+<code>    git pull --rebase --force</code>
+<code>    <span class="hl-built_in">popd</span></code>
+<code>}</code></pre>
+
+</figure>
+</section>
+<section id="Bonus-points">
+
+    <h2>
+    <a href="#Bonus-points">Bonus points </a>
+    </h2>
+<p><strong>Bonus 1: another useful function to have is for reviewing PRs:</strong></p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-comment"># called like `gpr 9262`, this function would checkout</span></code>
+<code><span class="hl-comment"># GitHub pull request #9262 to `pr-9262` branch</span></code>
+<code><span class="hl-keyword">function</span> <span class="hl-function"><span class="hl-title">gpr</span></span>() {</code>
+<code>    <span class="hl-built_in">local</span> <span class="hl-built_in">pr</span>=<span class="hl-variable">$1</span></code>
+<code>    git fetch upstream pull/<span class="hl-variable">$pr</span>/head:<span class="hl-built_in">pr</span>-<span class="hl-variable">$pr</span></code>
+<code>    git checkout <span class="hl-built_in">pr</span>-<span class="hl-variable">$pr</span></code>
+<code>}</code></pre>
+
+</figure>
+<p><strong>Bonus 2:</strong><br>
+There are a lot of learning materials about Git out there. However, a
+lot of these materials are either comprehensive references, or just present a
+handful of most useful git commands. I&rsquo;ve once accidentally stumbled upon
+<a href="https://jwiegley.github.io/git-from-the-bottom-up/">Git from the bottom up</a> and I
+highly recommend reading it: it is a moderately long article, which explains the
+inner mechanics of Git.</p>
+</section>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2018-05-03-effective-pull-requests.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

@@ -1,0 +1,532 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Encapsulating Lifetime of the Field</title>
+  <meta name="description" content="This is a post about an annoying Rust pattern and an annoying
+workaround, without a good solution :)">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2018/05/04/encapsulating-lifetime-of-the-field.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Encapsulating-Lifetime-of-the-Field">Encapsulating Lifetime of the Field <time datetime="2018-05-04">May 4, 2018</time></a>
+    </h1>
+<p>This is a post about an annoying Rust pattern and an annoying
+workaround, without a good solution :)</p>
+<section id="Problem-Statement">
+
+    <h2>
+    <a href="#Problem-Statement">Problem Statement </a>
+    </h2>
+<p>Suppose you have some struct which holds some references inside. Now,
+you want to store a reference to this structure inside some larger
+struct. It could look like this:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Foo</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt; {</code>
+<code>    buff: &amp;<span class="hl-symbol">&#x27;a</span> <span class="hl-type">String</span></code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">Context</span>&lt;<span class="hl-symbol">&#x27;f</span>&gt; {</code>
+<code>    foo: &amp;<span class="hl-symbol">&#x27;f</span> Foo</code>
+<code>}</code></pre>
+
+</figure>
+<p>The code, as written, does not compile:</p>
+
+<figure class="code-block">
+
+
+<pre><code>error[E0106]: missing lifetime specifier</code>
+<code> --&gt; src/main.rs:8:14</code>
+<code>  |</code>
+<code>8 |     foo: &amp;'f Foo</code>
+<code>  |              ^^^ expected lifetime parameter</code></pre>
+
+</figure>
+<p>To fix it, we need to get <code>Foo</code> an additional lifetime:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Foo</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt; {</code>
+<code>    buff: &amp;<span class="hl-symbol">&#x27;a</span> <span class="hl-type">String</span></code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">Context</span>&lt;<span class="hl-symbol">&#x27;f</span>, <span class="hl-symbol">&#x27;a</span>: <span class="hl-symbol">&#x27;f</span>&gt; {</code>
+<code>    foo: &amp;<span class="hl-symbol">&#x27;f</span> Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt;</code>
+<code>}</code></pre>
+
+</figure>
+<p>And this is the problem which is the subject of this post. Although
+<code>Foo</code> is supposed to be an implementation detail, its lifetime, <code>'a</code>,
+bleeds to <code>Context</code>&rsquo;s interface, so most of the clients of <code>Context</code>
+would need to name this lifetime together with <code>'a: 'f</code> bound. Note
+that this effect is transitive: in general, rust struct has to name
+lifetimes of contained types, and their contained types, and their
+contained types, &hellip; But let&rsquo;s concentrate on this two-level example!</p>
+<p>The question is, can we somehow hide this <code>'a</code> from users of <code>Context</code>? It&rsquo;s
+interesting that I&rsquo;ve first distilled this problem about half a year ago in this
+<a href="https://users.rust-lang.org/t/dealing-with-references-to-references/14065">urlo
+post</a>,
+and today, while refactoring some of Cargo internals in
+<a href="https://github.com/rust-lang/cargo/pull/5476">#5476</a> with
+<a href="https://github.com/dwijnand">@dwijnand</a>, I&rsquo;ve stumbled upon something, which
+could be called a solution, if you squint hard enough.</p>
+</section>
+<section id="Extended-Example">
+
+    <h2>
+    <a href="#Extended-Example">Extended Example </a>
+    </h2>
+<p>Let&rsquo;s create a somewhat longer example to check that lifetime setup
+actually works out in practice.</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Foo</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt; {</code>
+<code>    buff: &amp;<span class="hl-symbol">&#x27;a</span> <span class="hl-type">String</span></code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt; Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt; {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">len</span>(&amp;<span class="hl-keyword">self</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">usize</span> {</code>
+<code>        <span class="hl-keyword">self</span>.buff.<span class="hl-title function_ invoke__">len</span>()</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">Context</span>&lt;<span class="hl-symbol">&#x27;f</span>, <span class="hl-symbol">&#x27;a</span>: <span class="hl-symbol">&#x27;f</span>&gt; {</code>
+<code>    foo: &amp;<span class="hl-symbol">&#x27;f</span> Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt;</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-comment">// Note how we have to repeat ugly `&#x27;a: &#x27;f` bound here!</span></code>
+<code><span class="hl-keyword">impl</span>&lt;<span class="hl-symbol">&#x27;f</span>, <span class="hl-symbol">&#x27;a</span>: <span class="hl-symbol">&#x27;f</span>&gt; Context&lt;<span class="hl-symbol">&#x27;f</span>, <span class="hl-symbol">&#x27;a</span>&gt; {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>(foo: &amp;<span class="hl-symbol">&#x27;f</span> Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt;) <span class="hl-punctuation">-&gt;</span> <span class="hl-keyword">Self</span> {</code>
+<code>        Context { foo }</code>
+<code>    }</code>
+<code></code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">len</span>(&amp;<span class="hl-keyword">self</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">usize</span> {</code>
+<code>        <span class="hl-keyword">self</span>.foo.<span class="hl-title function_ invoke__">len</span>()</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-comment">// Check, that we actually can create a `Context`</span></code>
+<code><span class="hl-comment">// from `Foo` and call a method.</span></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">test</span>&lt;<span class="hl-symbol">&#x27;f</span>, <span class="hl-symbol">&#x27;a</span>&gt;(foo: &amp;<span class="hl-symbol">&#x27;f</span> Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt;) {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">ctx</span> = Context::<span class="hl-title function_ invoke__">new</span>(foo);</code>
+<code>    ctx.<span class="hl-title function_ invoke__">len</span>();</code>
+<code>}</code></pre>
+
+</figure>
+<p><a href="https://play.rust-lang.org/?gist=874046bf74f60644a59f75023518fa0c&amp;version=stable&amp;mode=debug">playground</a></p>
+</section>
+<section id="First-fix">
+
+    <h2>
+    <a href="#First-fix">First fix </a>
+    </h2>
+<p>The first natural idea is to try to use the same lifetime, <code>'f</code> for
+both <code>&amp;</code> and <code>Foo</code>: it fits syntactically, so why not give it a try?</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Foo</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt; {</code>
+<code>    buff: &amp;<span class="hl-symbol">&#x27;a</span> <span class="hl-type">String</span></code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt; Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt; {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">len</span>(&amp;<span class="hl-keyword">self</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">usize</span> {</code>
+<code>        <span class="hl-keyword">self</span>.buff.<span class="hl-title function_ invoke__">len</span>()</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">Context</span>&lt;<span class="hl-symbol">&#x27;f</span>&gt; {</code>
+<code>    foo: &amp;<span class="hl-symbol">&#x27;f</span> Foo&lt;<span class="hl-symbol">&#x27;f</span>&gt;</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span>&lt;<span class="hl-symbol">&#x27;f</span>&gt; Context&lt;<span class="hl-symbol">&#x27;f</span>&gt; {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt;(foo: &amp;<span class="hl-symbol">&#x27;f</span> Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt;) <span class="hl-punctuation">-&gt;</span> <span class="hl-keyword">Self</span> {</code>
+<code>        Context { foo }</code>
+<code>    }</code>
+<code></code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">len</span>(&amp;<span class="hl-keyword">self</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">usize</span> {</code>
+<code>        <span class="hl-keyword">self</span>.foo.<span class="hl-title function_ invoke__">len</span>()</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">test</span>&lt;<span class="hl-symbol">&#x27;f</span>, <span class="hl-symbol">&#x27;a</span>&gt;(foo: &amp;<span class="hl-symbol">&#x27;f</span> Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt;) {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">ctx</span> = Context::<span class="hl-title function_ invoke__">new</span>(foo);</code>
+<code>    ctx.<span class="hl-title function_ invoke__">len</span>();</code>
+<code>}</code></pre>
+
+</figure>
+<p><a href="https://play.rust-lang.org/?gist=5be80cbb6d896399953ece71babf4f70&amp;version=stable&amp;mode=debug">playground</a></p>
+<p>Surprisingly, it works! I&rsquo;ll show a case where this approach breaks down
+in a moment, but let&rsquo;s first understand <strong>why</strong> this works. The magic
+happens in the <code>new</code> method, which could be written more explicitly as</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>&lt;<span class="hl-symbol">&#x27;a</span>: <span class="hl-symbol">&#x27;f</span>&gt;(foo: &amp;<span class="hl-symbol">&#x27;f</span> Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt;) <span class="hl-punctuation">-&gt;</span> <span class="hl-keyword">Self</span> {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">foo1</span>: &amp;<span class="hl-symbol">&#x27;f</span> Foo&lt;<span class="hl-symbol">&#x27;f</span>&gt; = foo;</code>
+<code>    Context { foo: foo1 }</code>
+<code>}</code></pre>
+
+</figure>
+<p>Here, we assign a <code>&amp;'f Foo&lt;'a&gt;</code> to a variable of a different type <code>&amp;'f
+Foo&lt;'f&gt;</code>. Why is this allowed? We use <code>'a</code> lifetime in <code>Foo</code> only for
+a shared reference. That means that <code>Foo</code> is
+<a href="https://doc.rust-lang.org/nomicon/subtyping.html">covariant</a> over
+<code>'a</code>. And that means that the compiler can use <code>Foo&lt;'a&gt;</code> instead of
+<code>Foo&lt;'f&gt;</code> if <code>'a: 'f</code>. In other words rustc is allowed to shorten the
+lifetime.</p>
+<p>It&rsquo;s interesting to note that the original <code>new</code> function didn&rsquo;t say
+that <code>'a: 'f</code>, although we had to add this bound to the <code>impl</code> block
+explicitly. For functions, the compiler infers such bounds from
+parameters.</p>
+<p>Hopefully, I&rsquo;ve mixed polarity an even number of times in this
+variance discussion :-)</p>
+</section>
+<section id="Going-invariant">
+
+    <h2>
+    <a href="#Going-invariant">Going invariant </a>
+    </h2>
+<p>Let&rsquo;s throw a wrench in the works by adding some unique references:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Foo</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt; {</code>
+<code>    buff: &amp;<span class="hl-symbol">&#x27;a</span> <span class="hl-keyword">mut</span> <span class="hl-type">String</span></code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt; Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt; {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">push</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, c: <span class="hl-type">char</span>) {</code>
+<code>        <span class="hl-keyword">self</span>.buff.<span class="hl-title function_ invoke__">push</span>(c)</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">Context</span>&lt;<span class="hl-symbol">&#x27;f</span>, <span class="hl-symbol">&#x27;a</span>: <span class="hl-symbol">&#x27;f</span>&gt; {</code>
+<code>    foo: &amp;<span class="hl-symbol">&#x27;f</span> <span class="hl-keyword">mut</span>  Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt;</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span>&lt;<span class="hl-symbol">&#x27;f</span>, <span class="hl-symbol">&#x27;a</span>: <span class="hl-symbol">&#x27;f</span>&gt; Context&lt;<span class="hl-symbol">&#x27;f</span>, <span class="hl-symbol">&#x27;a</span>&gt; {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>(foo: &amp;<span class="hl-symbol">&#x27;f</span> <span class="hl-keyword">mut</span> Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt;) <span class="hl-punctuation">-&gt;</span> <span class="hl-keyword">Self</span> {</code>
+<code>        Context { foo }</code>
+<code>    }</code>
+<code></code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">push</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, c: <span class="hl-type">char</span>) {</code>
+<code>        <span class="hl-keyword">self</span>.foo.<span class="hl-title function_ invoke__">push</span>(c)</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">test</span>&lt;<span class="hl-symbol">&#x27;f</span>, <span class="hl-symbol">&#x27;a</span>&gt;(foo: &amp;<span class="hl-symbol">&#x27;f</span> <span class="hl-keyword">mut</span> Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt;) {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">ctx</span> = Context::<span class="hl-title function_ invoke__">new</span>(foo);</code>
+<code>    ctx.<span class="hl-title function_ invoke__">push</span>(<span class="hl-string">&#x27;9&#x27;</span>);</code>
+<code>}</code></pre>
+
+</figure>
+<p><a href="https://play.rust-lang.org/?gist=e9353288e05a31ce504bc073fd05ead0&amp;version=stable&amp;mode=debug">playground</a></p>
+<p><code>Foo</code> is now invariant, so the previous solution does not work:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Context</span>&lt;<span class="hl-symbol">&#x27;f</span>&gt; {</code>
+<code>    foo: &amp;<span class="hl-symbol">&#x27;f</span> <span class="hl-keyword">mut</span>  Foo&lt;<span class="hl-symbol">&#x27;f</span>&gt;</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span>&lt;<span class="hl-symbol">&#x27;f</span>&gt; Context&lt;<span class="hl-symbol">&#x27;f</span>&gt; {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>&lt;<span class="hl-symbol">&#x27;a</span>: <span class="hl-symbol">&#x27;f</span>&gt;(foo: &amp;<span class="hl-symbol">&#x27;f</span> <span class="hl-keyword">mut</span> Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt;) <span class="hl-punctuation">-&gt;</span> <span class="hl-keyword">Self</span> {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">foo1</span>: &amp;<span class="hl-symbol">&#x27;f</span> <span class="hl-keyword">mut</span> Foo&lt;<span class="hl-symbol">&#x27;f</span>&gt; = foo;</code>
+<code>        Context { foo: foo1 }</code>
+<code>    }</code>
+<code></code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">push</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, c: <span class="hl-type">char</span>) {</code>
+<code>        <span class="hl-keyword">self</span>.foo.<span class="hl-title function_ invoke__">push</span>(c)</code>
+<code>    }</code>
+<code>}</code></pre>
+
+</figure>
+
+<figure class="code-block">
+
+
+<pre><code>error[E0308]: mismatched types</code>
+<code>  --&gt; src/main.rs:17:37</code>
+<code>   |</code>
+<code>17 |         let foo1: &amp;'f mut Foo&lt;'f&gt; = foo;</code>
+<code>   |                                     ^^^ lifetime mismatch</code>
+<code>   |</code>
+<code>   = note: expected type `&amp;'f mut Foo&lt;'f&gt;`</code>
+<code>              found type `&amp;'f mut Foo&lt;'a&gt;`</code></pre>
+
+</figure>
+<p><a href="https://play.rust-lang.org/?gist=f2b6ceab4e82d9f02d605befabe59524&amp;version=stable&amp;mode=debug">playground</a></p>
+</section>
+<section id="Unsheathing-existentials">
+
+    <h2>
+    <a href="#Unsheathing-existentials">Unsheathing existentials </a>
+    </h2>
+<p>Let&rsquo;s look again at the <code>Context</code> type:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Context</span>&lt;<span class="hl-symbol">&#x27;f</span>, <span class="hl-symbol">&#x27;a</span>: <span class="hl-symbol">&#x27;f</span>&gt; {</code>
+<code>    foo: &amp;<span class="hl-symbol">&#x27;f</span> <span class="hl-keyword">mut</span>  Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt;</code>
+<code>}</code></pre>
+
+</figure>
+<p>What we want to say is that, inside the <code>Context</code>, there is <strong>some</strong>
+lifetime <code>'a</code> which the consumers of <code>Context</code> need not care about,
+because it outlives <code>'f</code> anyway. I <strong>think</strong> that the syntax for that
+would be something like</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Context</span>&lt;<span class="hl-symbol">&#x27;f</span>&gt; {</code>
+<code>    foo: &amp;<span class="hl-symbol">&#x27;f</span> <span class="hl-keyword">mut</span> <span class="hl-keyword">for</span>&lt;<span class="hl-symbol">&#x27;a</span>: f&gt; Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt;</code>
+<code>}</code></pre>
+
+</figure>
+<p>Alas, <code>for</code> is supported only for traits and function pointers, and
+there it has the opposite polarity of <code>for all</code> instead of <code>exists</code>,
+so using it for a struct gives</p>
+
+<figure class="code-block">
+
+
+<pre><code>error[E0404]: expected trait, found struct `Foo`</code>
+<code>  --&gt; src/main.rs:12:30</code>
+<code>   |</code>
+<code>12 |     foo: &amp;'f mut for&lt;'a: 'f&gt; Foo&lt;'a&gt;</code>
+<code>   |                              ^^^^^^^ not a trait</code></pre>
+
+</figure>
+</section>
+<section id="A-hack">
+
+    <h2>
+    <a href="#A-hack">A hack </a>
+    </h2>
+<p>However, and this is what I realized reading the Cargo&rsquo;s source code,
+we <strong>can</strong> use a trait here!</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Foo</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt; {</code>
+<code>    buff: &amp;<span class="hl-symbol">&#x27;a</span> <span class="hl-keyword">mut</span> <span class="hl-type">String</span></code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt; Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt; {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">push</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, c: <span class="hl-type">char</span>) {</code>
+<code>        <span class="hl-keyword">self</span>.buff.<span class="hl-title function_ invoke__">push</span>(c)</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">trait</span> <span class="hl-title class_">Push</span> {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">push</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, c: <span class="hl-type">char</span>);</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt; Push <span class="hl-keyword">for</span> <span class="hl-title class_">Foo</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt; {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">push</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, c: <span class="hl-type">char</span>) {</code>
+<code>        <span class="hl-keyword">self</span>.<span class="hl-title function_ invoke__">push</span>(c)</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">Context</span>&lt;<span class="hl-symbol">&#x27;f</span>&gt; {</code>
+<code>    foo: &amp;<span class="hl-symbol">&#x27;f</span> <span class="hl-title function_ invoke__">mut</span> (Push + <span class="hl-symbol">&#x27;f</span>)</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span>&lt;<span class="hl-symbol">&#x27;f</span>&gt; Context&lt;<span class="hl-symbol">&#x27;f</span>&gt; {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt;(foo: &amp;<span class="hl-symbol">&#x27;f</span> <span class="hl-keyword">mut</span> Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt;) <span class="hl-punctuation">-&gt;</span> <span class="hl-keyword">Self</span> {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">foo</span>: &amp;<span class="hl-symbol">&#x27;f</span> <span class="hl-keyword">mut</span> Push = foo;</code>
+<code>        Context { foo }</code>
+<code>    }</code>
+<code></code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">push</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, c: <span class="hl-type">char</span>) {</code>
+<code>        <span class="hl-keyword">self</span>.foo.<span class="hl-title function_ invoke__">push</span>(c)</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">test</span>&lt;<span class="hl-symbol">&#x27;f</span>, <span class="hl-symbol">&#x27;a</span>&gt;(foo: &amp;<span class="hl-symbol">&#x27;f</span> <span class="hl-keyword">mut</span> Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt;) {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">ctx</span> = Context::<span class="hl-title function_ invoke__">new</span>(foo);</code>
+<code>    ctx.<span class="hl-title function_ invoke__">push</span>(<span class="hl-string">&#x27;9&#x27;</span>);</code>
+<code>}</code></pre>
+
+</figure>
+<p><a href="https://play.rust-lang.org/?gist=7d94842bad6cc92652e3d175e6cf435f&amp;version=stable&amp;mode=debug">playground</a></p>
+<p>We&rsquo;ve added a <code>Push</code> trait, which has the same interface as the <code>Foo</code>
+struct, but is <strong><strong>not</strong></strong> parametrized over the lifetime. This is
+possible because <code>Foo</code>&rsquo;s interface doesn&rsquo;t actually depend on the <code>'a</code>
+lifetime. And this allows us to magically write <code>foo: &amp;'f mut (Push + 'f)</code>.
+This <code>+ 'f</code> is what hides <code>'a</code> as &ldquo;some unknown lifetime, which outlives <code>'f</code>&rdquo;.</p>
+</section>
+<section id="A-hack-refined">
+
+    <h2>
+    <a href="#A-hack-refined">A hack, refined </a>
+    </h2>
+<p>There are many problems with the previous solution: it is ugly,
+complicated and introduces dynamic dispatch. I don&rsquo;t know how to solve
+those problems, so let&rsquo;s talk about something I know how to deal with
+:-)</p>
+<p>The <code>Push</code> trait duplicated the interface of the <code>Foo</code> struct. It
+wasn&rsquo;t <strong>that</strong> bad, because <code>Foo</code> had only one method. But what if
+<code>Bar</code> has a dozen of methods? Could we write a more general trait,
+which gives us access to <code>Foo</code> directly? Looks like it is possible, at
+least to some extent:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Foo</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt; {</code>
+<code>    buff: &amp;<span class="hl-symbol">&#x27;a</span> <span class="hl-keyword">mut</span> <span class="hl-type">String</span></code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt; Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt; {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">push</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, c: <span class="hl-type">char</span>) {</code>
+<code>        <span class="hl-keyword">self</span>.buff.<span class="hl-title function_ invoke__">push</span>(c)</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">trait</span> <span class="hl-title class_">WithFoo</span> {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">with_foo</span>&lt;<span class="hl-symbol">&#x27;f</span>&gt;(&amp;<span class="hl-symbol">&#x27;f</span> <span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, f: &amp;<span class="hl-keyword">mut</span> <span class="hl-title function_ invoke__">FnMut</span>(&amp;<span class="hl-symbol">&#x27;f</span> <span class="hl-keyword">mut</span> Foo));</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt; WithFoo <span class="hl-keyword">for</span> <span class="hl-title class_">Foo</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt; {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">with_foo</span>&lt;<span class="hl-symbol">&#x27;f</span>&gt;(&amp;<span class="hl-symbol">&#x27;f</span> <span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, f: &amp;<span class="hl-keyword">mut</span> <span class="hl-title function_ invoke__">FnMut</span>(&amp;<span class="hl-symbol">&#x27;f</span> <span class="hl-keyword">mut</span> Foo)) {</code>
+<code>        <span class="hl-title function_ invoke__">f</span>(<span class="hl-keyword">self</span>)</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">Context</span>&lt;<span class="hl-symbol">&#x27;f</span>&gt; {</code>
+<code>    foo: &amp;<span class="hl-symbol">&#x27;f</span> <span class="hl-title function_ invoke__">mut</span> (WithFoo + <span class="hl-symbol">&#x27;f</span>)</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span>&lt;<span class="hl-symbol">&#x27;f</span>&gt; Context&lt;<span class="hl-symbol">&#x27;f</span>&gt; {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt;(foo: &amp;<span class="hl-symbol">&#x27;f</span> <span class="hl-keyword">mut</span> Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt;) <span class="hl-punctuation">-&gt;</span> <span class="hl-keyword">Self</span> {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">foo</span>: &amp;<span class="hl-symbol">&#x27;f</span> <span class="hl-keyword">mut</span> WithFoo = foo;</code>
+<code>        Context { foo }</code>
+<code>    }</code>
+<code></code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">push</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, c: <span class="hl-type">char</span>) {</code>
+<code>        <span class="hl-keyword">self</span>.foo.<span class="hl-title function_ invoke__">with_foo</span>(&amp;<span class="hl-keyword">mut</span> |foo| foo.<span class="hl-title function_ invoke__">push</span>(c))</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">test</span>&lt;<span class="hl-symbol">&#x27;f</span>, <span class="hl-symbol">&#x27;a</span>&gt;(foo: &amp;<span class="hl-symbol">&#x27;f</span> <span class="hl-keyword">mut</span> Foo&lt;<span class="hl-symbol">&#x27;a</span>&gt;) {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">ctx</span> = Context::<span class="hl-title function_ invoke__">new</span>(foo);</code>
+<code>    ctx.<span class="hl-title function_ invoke__">push</span>(<span class="hl-string">&#x27;9&#x27;</span>);</code>
+<code>}</code></pre>
+
+</figure>
+<p><a href="https://play.rust-lang.org/?gist=419d72db0b34c6cdc69a507a1fab2689&amp;version=stable&amp;mode=debug">playground</a></p>
+<p>How does this work? Generally, we want to say that &ldquo;there exists some
+lifetime <code>'a</code>, which we know nothing about except that <code>'a: 'f</code>&rdquo;. Rust
+supports similar constructions only for functions, where <code>for&lt;'a&gt; fn
+foo(&amp;'a i32)</code> means that a function works for all lifetimes <code>'a</code>. The
+trick is to turn one into another! The desugared type of callback <code>f</code>,
+is <code>&amp;mut for&lt;'x&gt; FnMut(&amp;'f mut Foo&lt;'x&gt;)</code>. That is, it is a function
+which accepts <code>Foo</code> with any lifetime. Given that callback, we are
+able to feed our <code>Foo</code> with a particular lifetime to it.</p>
+</section>
+<section id="Conclusion">
+
+    <h2>
+    <a href="#Conclusion">Conclusion </a>
+    </h2>
+<p>While the code examples in the post juggled <code>Foo</code>s and <code>Bar</code>s, the
+core problem is real and greatly affects the design of Rust code. When
+you add a lifetime to a struct, you &ldquo;poison&rdquo; it, and all structs which
+contain it as a member need to declare this lifetime as well. I would
+love to know a proper solution for this problem: the described trait
+object workaround is closer to code golf than to the practical
+approach.</p>
+<p>Discussion on <a href="https://www.reddit.com/r/rust/comments/8h2kt5/blog_post_encapsulating_lifetime_of_the_field/">/r/rust</a>.</p>
+</section>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2018-05-04-encapsulating-lifetime-of-the-field.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

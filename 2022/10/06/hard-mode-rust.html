@@ -1,0 +1,1030 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hard Mode Rust</title>
+  <meta name="description" content="This post is a case study of writing a Rust application using only minimal, artificially constrained API (eg, no dynamic memory allocation).
+It assumes a fair bit of familiarity with the language.">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2022/10/06/hard-mode-rust.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Hard-Mode-Rust">Hard Mode Rust <time datetime="2022-10-06">Oct 6, 2022</time></a>
+    </h1>
+<p>This post is a case study of writing a Rust application using only minimal, artificially constrained API (eg, no dynamic memory allocation).
+It assumes a fair bit of familiarity with the language.</p>
+<section id="Hard-Mode-Rust-1">
+
+    <h2>
+    <a href="#Hard-Mode-Rust-1">Hard Mode Rust </a>
+    </h2>
+<p>The back story here is a particular criticism of Rust and C++ from hard-core C programmers.
+This criticism is aimed at <a href="https://en.cppreference.com/w/cpp/language/raii">RAII</a> &ndash; the language-defining feature of C++, which was wholesale imported to Rust as well.
+RAII makes using various resources requiring cleanups (file descriptors, memory, locks) easy &mdash; any place in the program can create a resource, and the cleanup code will be invoked automatically when needed.
+And herein lies the problem &mdash; because allocating resources becomes easy, RAII encourages a sloppy attitude to resources, where they are allocated and destroyed all over the place.
+In particular, this leads to:</p>
+<ul>
+<li>
+Decrease in reliability. Resources are usually limited in principle, but actual resource exhaustion happens rarely.
+If resources are allocated throughout the program, there are many virtually untested codepaths.
+</li>
+<li>
+Lack of predictability. It usually is impossible to predict up-front how much resources will the program consume.
+Instead, resource-consumption is observed empirically.
+</li>
+<li>
+Poor performance. Usually, it is significantly more efficient to allocate and free resources in batches.
+Cleanup code for individual resources is scattered throughout codebase, increasing code bloat
+</li>
+<li>
+Spaghetti architecture. Resource allocation is an architecturally salient thing.
+If all resource management is centralized to a single place, it becomes significantly easier to understand lifecycle of resources.
+</li>
+</ul>
+<p>I think this is a fair criticism.
+In fact, I think this is the same criticism that C++ and Rust programmers aim at garbage collected languages.
+This is a spectrum:</p>
+
+<figure class="code-block">
+
+
+<pre><code>           GC object graph</code>
+<code>                 v v</code>
+<code>                  v</code>
+<code>        Tree of values with RAII</code>
+<code>                 v v</code>
+<code>                  v</code>
+<code>Static allocation of resources at startup</code></pre>
+
+</figure>
+<p>Rust programmers typically are not exposed to the lowest level of this pyramid.
+But there&rsquo;s a relatively compact exercise to gain the relevant experience: try re-implementing your favorite Rust programs on hard mode.</p>
+<p><strong><strong>Hard Mode</strong></strong> means that you split your program into <code>std</code> binary and <code>#![no_std]</code> no-alloc library.
+Only the small binary is allowed to directly ask OS for resources.
+For the library, all resources must be injected.
+In particular, to do memory allocation, the library receives a slice of bytes of a fixed size, and should use that for all storage.
+Something like this:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-comment">// app/src/main.rs</span></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">main</span>() {</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">mem_limit</span> = <span class="hl-number">64</span> * <span class="hl-number">1024</span>;</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">memory</span> = <span class="hl-built_in">vec!</span>[<span class="hl-number">0u8</span>; mem_limit];</code>
+<code>  app::<span class="hl-title function_ invoke__">run</span>(&amp;<span class="hl-keyword">mut</span> memory)</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-comment">// app/src/lib.rs</span></code>
+<code><span class="hl-meta">#![no_std]</span> <span class="hl-comment">// &lt;- the point of the exercise</span></code>
+<code></code>
+<code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">run</span>(memory: &amp;<span class="hl-keyword">mut</span> [<span class="hl-type">u8</span>]) {</code>
+<code>  ...</code>
+<code>}</code></pre>
+
+</figure>
+</section>
+<section id="Ray-Tracing">
+
+    <h2>
+    <a href="#Ray-Tracing">Ray Tracing </a>
+    </h2>
+<p>So, this is what the post is about: my experience implementing a toy hard mode ray tracer.
+You can find the code on GitHub: <a href="http://github.com/matklad/crt">http://github.com/matklad/crt</a>.</p>
+<p>The task of a ray tracer is to convert a description of a 3D scene like the following one:</p>
+
+<figure class="code-block">
+
+
+<pre><code>background #000000</code>
+<code></code>
+<code>camera {</code>
+<code>    pos 0,10,-50</code>
+<code>    look_at 0,0,0</code>
+<code>    up 0,-1,0</code>
+<code>    focus 50</code>
+<code>    dim 80x60</code>
+<code>}</code>
+<code></code>
+<code>light {</code>
+<code>    pos -20,10,0</code>
+<code>    color #aa1111</code>
+<code>}</code>
+<code></code>
+<code>plane {</code>
+<code>    pos 0,-10,0</code>
+<code>    normal 0,1,0</code>
+<code>    material {</code>
+<code>        color #5566FF</code>
+<code>        diffuse 3</code>
+<code>    }</code>
+<code>}</code>
+<code></code>
+<code>mesh {</code>
+<code>    material {</code>
+<code>        color #BB5566</code>
+<code>        diffuse 3</code>
+<code>    }</code>
+<code></code>
+<code>    data {</code>
+<code>        v 5.92,4.12,0.00</code>
+<code>        v 5.83,4.49,0.00</code>
+<code>        v 5.94,4.61,0.00</code>
+<code>        v 6.17,4.49,0.00</code>
+<code>        v 6.42,4.12,0.00</code>
+<code>        v 5.38,4.12,2.74</code>
+<code>        ...</code>
+<code></code>
+<code>        vn -0.96,-0.25,0.00</code>
+<code>        vn -0.96,0.25,0.00</code>
+<code>        vn -0.09,0.99,0.00</code>
+<code>        vn 0.68,0.73,0.00</code>
+<code>        vn 0.87,0.49,0.00</code>
+<code>        vn -0.89,-0.25,-0.36</code>
+<code>        ...</code>
+<code></code>
+<code>        f 1/1 2/2 3/3</code>
+<code>        f 4/4 5/5 6/6</code>
+<code>        ...</code>
+<code>    }</code>
+<code></code>
+<code>}</code></pre>
+
+</figure>
+<p>Into a rendered image like this:</p>
+
+<figure>
+
+<img alt="" src="https://user-images.githubusercontent.com/1711539/194287665-05583649-dcb0-4014-82b9-424f945e19a4.png">
+</figure>
+<p>This works rather intuitive conceptually.
+First, imagine the above scene, with an infinite fuchsia colored plane and a red Utah teapot hovering above that.
+Then, imagine a camera standing at <code>0,10,-50</code> (in cartesian coordinates) and aiming at the origin.
+Now, draw an imaginary rectangular 80x60 screen at a focus distance of 50 from the camera along its line of side.
+To get a 2D picture, we shoot a ray from the camera through each &ldquo;pixel&rdquo; on the screen, note which object on the scene is hit (plan, teapot, background), and color the pixel accordingly.
+See <a href="https://pbrt.org">PBRT Book</a> if you feel like falling further into this particular rabbit hole (warning: it is very deep) (I apologize for &ldquo;little square pixels&rdquo; simplification I use throughout the post :-) ).</p>
+<p>I won&rsquo;t focus on specific algorithms to implement that (indeed, crt is a very naive tracer), but rather highlight Hard Mode Rust specific concerns.</p>
+</section>
+<section id="Pixel-Buffer">
+
+    <h2>
+    <a href="#Pixel-Buffer">Pixel Buffer </a>
+    </h2>
+<p>Ultimately, the out of a ray tracer is a 2D buffer with 8bit RGB pixels.
+One would typically represent it as follows:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">struct</span> <span class="hl-title class_">Color</span> { r: <span class="hl-type">u8</span>, g: <span class="hl-type">u8</span>, b: <span class="hl-type">u8</span> }</code>
+<code></code>
+<code><span class="hl-keyword">pub</span> <span class="hl-keyword">struct</span> <span class="hl-title class_">Buf</span> {</code>
+<code>  dim: [<span class="hl-type">u32</span>; <span class="hl-number">2</span>]</code>
+<code>  <span class="hl-comment">// invariant: data.len() == dim.0 * dim.1</span></code>
+<code>  data: <span class="hl-type">Box</span>&lt;[Color]&gt;,</code>
+<code>}</code></pre>
+
+</figure>
+<p>For us, we want someone else (main) to allocate that box of colors for us, so instead we do the following:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">struct</span> <span class="hl-title class_">Buf</span>&lt;<span class="hl-symbol">&#x27;m</span>&gt; {</code>
+<code>  dim: [<span class="hl-type">u32</span>; <span class="hl-number">2</span>],</code>
+<code>  buf: &amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> [Color],</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span>&lt;<span class="hl-symbol">&#x27;m</span>&gt; Buf&lt;<span class="hl-symbol">&#x27;m</span>&gt; {</code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>(dim: Idx, buf: &amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> [Color]) <span class="hl-punctuation">-&gt;</span> Buf&lt;<span class="hl-symbol">&#x27;m</span>&gt; {</code>
+<code>    <span class="hl-built_in">assert!</span>(dim.<span class="hl-number">0</span> * dim.<span class="hl-number">1</span> == buf.<span class="hl-title function_ invoke__">len</span>() <span class="hl-keyword">as</span> <span class="hl-type">u32</span>);</code>
+<code>    Buf { dim, buf }</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>The <code>'m</code> lifetime we use for abstract memory managed elsewhere.
+Note how the struct grew an extra lifetime!
+This is extra price we have to pay for not relying on RAII to cleanup resources for us:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-comment">// Easy Mode</span></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">paint</span>(buf: &amp;<span class="hl-keyword">mut</span> Buf) { ... }</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">PaintCtx</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt; {</code>
+<code>  buf: &amp;<span class="hl-symbol">&#x27;a</span> <span class="hl-keyword">mut</span> Buf</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-comment">// Hard Mode</span></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">paint</span>(buf: &amp;<span class="hl-keyword">mut</span> Buf&lt;<span class="hl-symbol">&#x27;_</span>&gt;) { ... }</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">PaintCtx</span>&lt;<span class="hl-symbol">&#x27;a</span>, <span class="hl-symbol">&#x27;m</span>&gt; {</code>
+<code>  buf: &amp;<span class="hl-symbol">&#x27;a</span> <span class="hl-keyword">mut</span> Buf&lt;<span class="hl-symbol">&#x27;m</span>&gt;</code>
+<code>}</code></pre>
+
+</figure>
+<p>Note in particular how the <code>Ctx</code> struct now has to include two lifetimes.
+This feels unnecessary: <code>'a</code> is shorter than <code>'m</code>.
+I wish it was possible to somehow abstract that away:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">PaintCtx</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt; {</code>
+<code>  buf: &amp;<span class="hl-symbol">&#x27;a</span> <span class="hl-keyword">mut</span> Buf&lt;<span class="hl-symbol">&#x27;_</span>&gt; <span class="hl-comment">// &amp;&#x27;a mut exists&lt;&#x27;m&gt;: Buf&lt;&#x27;m&gt;</span></code>
+<code>}</code></pre>
+
+</figure>
+<p>I don&rsquo;t think that&rsquo;s really possible (<a href="https://matklad.github.io/2018/05/04/encapsulating-lifetime-of-the-field.html">earlier post about this</a>).
+In particular, the following would run into variance issues:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">PaintCtx</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt; {</code>
+<code>  buf: &amp;<span class="hl-symbol">&#x27;a</span> <span class="hl-keyword">mut</span> Buf&lt;<span class="hl-symbol">&#x27;a</span>&gt;</code>
+<code>}</code></pre>
+
+</figure>
+<p>Ultimately, this is annoying, but not a deal breaker.</p>
+<p>With this <code>rgb::Buf&lt;'_&gt;</code>, we can sketch the program:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-comment">// hard mode library</span></code>
+<code><span class="hl-meta">#![no_std]</span></code>
+<code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">render</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt;(</code>
+<code>  crt: &amp;<span class="hl-symbol">&#x27;a</span> <span class="hl-type">str</span>,   <span class="hl-comment">// textual description of the scene</span></code>
+<code>  mem: &amp;<span class="hl-keyword">mut</span> [<span class="hl-type">u8</span>], <span class="hl-comment">// all the memory we can use</span></code>
+<code>  buf: &amp;<span class="hl-keyword">mut</span> rgb::Buf, <span class="hl-comment">// write image here</span></code>
+<code>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Result</span>&lt;(), Error&lt;<span class="hl-symbol">&#x27;a</span>&gt;&gt; {</code>
+<code>  ...</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-comment">// main</span></code>
+<code><span class="hl-meta">#[derive(argh::FromArgs)]</span></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">Args</span> {</code>
+<code>  <span class="hl-meta">#[argh(option, default = <span class="hl-string">&quot;64&quot;</span>)]</span>  mem: <span class="hl-type">usize</span>,</code>
+<code>  <span class="hl-meta">#[argh(option, default = <span class="hl-string">&quot;800&quot;</span>)]</span> width: <span class="hl-type">u32</span>,</code>
+<code>  <span class="hl-meta">#[argh(option, default = <span class="hl-string">&quot;600&quot;</span>)]</span> height: <span class="hl-type">u32</span>,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">main</span>() <span class="hl-punctuation">-&gt;</span> anyhow::<span class="hl-type">Result</span>&lt;()&gt; {</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">args</span>: Args = argh::<span class="hl-title function_ invoke__">from_env</span>();</code>
+<code></code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">crt</span> = <span class="hl-type">String</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>  io::<span class="hl-title function_ invoke__">stdin</span>()</code>
+<code>    .<span class="hl-title function_ invoke__">read_to_string</span>(&amp;<span class="hl-keyword">mut</span> crt)</code>
+<code>    .<span class="hl-title function_ invoke__">context</span>(<span class="hl-string">&quot;reading input&quot;</span>)?;</code>
+<code></code>
+<code>  <span class="hl-comment">// Allocate all the memory.</span></code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">mem</span> = <span class="hl-built_in">vec!</span>[<span class="hl-number">0</span>; args.mem * <span class="hl-number">1024</span>];</code>
+<code></code>
+<code>  <span class="hl-comment">// Allocate the image</span></code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">buf</span> = <span class="hl-built_in">vec!</span>[</code>
+<code>    rgb::Color::<span class="hl-title function_ invoke__">default</span>();</code>
+<code>    (args.width * args.height) <span class="hl-keyword">as</span> <span class="hl-type">usize</span></code>
+<code>  ];</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">buf</span> =</code>
+<code>    rgb::Buf::<span class="hl-title function_ invoke__">new</span>([args.width, args.height], &amp;<span class="hl-keyword">mut</span> buf);</code>
+<code></code>
+<code>  render::<span class="hl-title function_ invoke__">render</span>(</code>
+<code>    &amp;crt,</code>
+<code>    &amp;<span class="hl-keyword">mut</span> mem,</code>
+<code>    &amp;<span class="hl-keyword">mut</span> buf,</code>
+<code>  )</code>
+<code>  .<span class="hl-title function_ invoke__">map_err</span>(|err| anyhow::format_err!(<span class="hl-string">&quot;{err}&quot;</span>))?;</code>
+<code></code>
+<code>  <span class="hl-comment">// Write result as a PPM image format.</span></code>
+<code>  <span class="hl-title function_ invoke__">write_ppm</span>(&amp;buf, &amp;<span class="hl-keyword">mut</span> io::<span class="hl-title function_ invoke__">stdout</span>().<span class="hl-title function_ invoke__">lock</span>())</code>
+<code>    .<span class="hl-title function_ invoke__">context</span>(<span class="hl-string">&quot;writing output&quot;</span>)?;</code>
+<code>  <span class="hl-title function_ invoke__">Ok</span>(())</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">write_ppm</span>(</code>
+<code>  buf: &amp;rgb::Buf,</code>
+<code>  w: &amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">dyn</span> io::Write,</code>
+<code>) <span class="hl-punctuation">-&gt;</span> io::<span class="hl-type">Result</span>&lt;()&gt; {</code>
+<code>  ...</code>
+<code>}</code></pre>
+
+</figure>
+</section>
+<section id="Hard-Mode-Rayon">
+
+    <h2>
+    <a href="#Hard-Mode-Rayon">Hard Mode Rayon </a>
+    </h2>
+<p>Ray tracing is an embarrassingly parallel task &mdash; the color of each output pixel can be computed independently.
+Usually, the excellent <a href="https://lib.rs/crates/rayon">rayon</a> library is used to take advantage of parallelism, but for our raytracer I want to show a significantly simpler API design for taking advantage of many cores.
+I&rsquo;ve seen this design in <a href="https://github.com/sorbet/sorbet/blob/master/common/concurrency/WorkerPool.h">Sorbet</a>, a type checker for Ruby.</p>
+<p>Here&rsquo;s how a <code>render</code> function with support for parallelism looks:</p>
+
+<figure class="code-block">
+
+
+<pre><code class="hl-line"><span class="hl-keyword">type</span> <span class="hl-title class_">ThreadPool</span>&lt;<span class="hl-symbol">&#x27;t</span>&gt; = <span class="hl-keyword">dyn</span> <span class="hl-title function_ invoke__">Fn</span>(&amp;(<span class="hl-keyword">dyn</span> <span class="hl-title function_ invoke__">Fn</span>() + <span class="hl-built_in">Sync</span>)) + <span class="hl-symbol">&#x27;t</span>;</code>
+<code></code>
+<code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">render</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt;(</code>
+<code>  crt: &amp;<span class="hl-symbol">&#x27;a</span> <span class="hl-type">str</span>,</code>
+<code>  mem: &amp;<span class="hl-keyword">mut</span> [<span class="hl-type">u8</span>],</code>
+<code class="hl-line">  in_parallel: &amp;ThreadPool&lt;<span class="hl-symbol">&#x27;_</span>&gt;,</code>
+<code>  buf: &amp;<span class="hl-keyword">mut</span> rgb::Buf&lt;<span class="hl-symbol">&#x27;_</span>&gt;,</code>
+<code>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Result</span>&lt;(), Error&lt;<span class="hl-symbol">&#x27;a</span>&gt;&gt; {</code></pre>
+
+</figure>
+<p>The interface here is the <code>in_parallel</code> function, which takes another function as an argument and runs it, in parallel, on all available threads.
+You typically use it like this:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">let</span> <span class="hl-variable">work</span>: ConcurrentQueue&lt;Work&gt; = ConcurrentQueue::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>work.<span class="hl-title function_ invoke__">extend</span>(available_work);</code>
+<code><span class="hl-title function_ invoke__">in_parallel</span>(&amp;|| {</code>
+<code>  <span class="hl-keyword">while</span> <span class="hl-keyword">let</span> <span class="hl-variable">Some</span>(item) = work.<span class="hl-title function_ invoke__">pop</span>() {</code>
+<code>    <span class="hl-title function_ invoke__">process</span>(item);</code>
+<code>  }</code>
+<code>})</code></pre>
+
+</figure>
+<p>This is <em>similar</em> to a typical threadpool, but different.
+Similar to a threadpool, there&rsquo;s a number of threads (typically one per core) which execute arbitrary jobs.
+The first difference is that a typical threadpool sends a job to to a single thread, while in this design the same job is broadcasted to all threads.
+The job is <code>Fn + Sync</code> rather than <code>FnOnce + Send</code>.
+The second difference is that we <em>block</em> until the job is done on all threads, so we can borrow data from the stack.</p>
+<p>It&rsquo;s on the caller to explicitly implement a concurrent queue to distributed specific work items.
+In my implementation, I slice the image in rows</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">type</span> <span class="hl-title class_">ThreadPool</span>&lt;<span class="hl-symbol">&#x27;t</span>&gt; = <span class="hl-keyword">dyn</span> <span class="hl-title function_ invoke__">Fn</span>(&amp;(<span class="hl-keyword">dyn</span> <span class="hl-title function_ invoke__">Fn</span>() + <span class="hl-built_in">Sync</span>)) + <span class="hl-symbol">&#x27;t</span>;</code>
+<code></code>
+<code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">render</span>&lt;<span class="hl-symbol">&#x27;a</span>&gt;(</code>
+<code>  crt: &amp;<span class="hl-symbol">&#x27;a</span> <span class="hl-type">str</span>,</code>
+<code>  mem: &amp;<span class="hl-keyword">mut</span> [<span class="hl-type">u8</span>],</code>
+<code>  in_parallel: &amp;ThreadPool&lt;<span class="hl-symbol">&#x27;_</span>&gt;,</code>
+<code>  buf: &amp;<span class="hl-keyword">mut</span> rgb::Buf&lt;<span class="hl-symbol">&#x27;_</span>&gt;,</code>
+<code>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Result</span>&lt;(), Error&lt;<span class="hl-symbol">&#x27;a</span>&gt;&gt; {</code>
+<code>  ...</code>
+<code>  <span class="hl-comment">// Note: this is not mut, because this is</span></code>
+<code>  <span class="hl-comment">// a concurrent iterator.</span></code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">rows</span> = buf.<span class="hl-title function_ invoke__">partition</span>();</code>
+<code>  <span class="hl-title function_ invoke__">in_parallel</span>(&amp;|| {</code>
+<code>    <span class="hl-comment">// next_row increments an atomic and</span></code>
+<code>    <span class="hl-comment">// uses the row index to give an `&amp;mut`</span></code>
+<code>    <span class="hl-comment">// into the row&#x27;s pixels.</span></code>
+<code>    <span class="hl-keyword">while</span> <span class="hl-keyword">let</span> <span class="hl-variable">Some</span>(row) = rows.<span class="hl-title function_ invoke__">next_row</span>() {</code>
+<code>      <span class="hl-keyword">let</span> <span class="hl-variable">y</span>: <span class="hl-type">u32</span> = row.y;</code>
+<code>      <span class="hl-keyword">let</span> <span class="hl-variable">buf</span>: &amp;<span class="hl-keyword">mut</span> [rgb::Color] = row.buf;</code>
+<code>      <span class="hl-keyword">for</span> <span class="hl-variable">x</span> <span class="hl-keyword">in</span> <span class="hl-number">0</span>..dim[<span class="hl-number">0</span>] {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">color</span> = render::<span class="hl-title function_ invoke__">render_pixel</span>(&amp;scene, [x, y]);</code>
+<code>        buf[x <span class="hl-keyword">as</span> <span class="hl-type">usize</span>] = <span class="hl-title function_ invoke__">to_rgb</span>(&amp;color);</code>
+<code>      }</code>
+<code>    }</code>
+<code>  });</code>
+<code>  ...</code>
+<code>}</code></pre>
+
+</figure>
+<p>In <code>main</code>, we implement a concrete <code>ThreadPool</code> by spawning a thread per core:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">main</span>() <span class="hl-punctuation">-&gt;</span> anyhow::<span class="hl-type">Result</span>&lt;()&gt; {</code>
+<code>  ...</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">threads</span> = <span class="hl-keyword">match</span> args.jobs {</code>
+<code>    <span class="hl-title function_ invoke__">Some</span>(it) =&gt; Threads::<span class="hl-title function_ invoke__">new</span>(it),</code>
+<code>    <span class="hl-literal">None</span> =&gt; Threads::<span class="hl-title function_ invoke__">with_max_threads</span>()?,</code>
+<code>  };</code>
+<code>  render::<span class="hl-title function_ invoke__">render</span>(</code>
+<code>    &amp;crt,</code>
+<code>    &amp;<span class="hl-keyword">mut</span> mem,</code>
+<code>    &amp;|f| threads.<span class="hl-title function_ invoke__">in_parallel</span>(f),</code>
+<code>    &amp;<span class="hl-keyword">mut</span> buf,</code>
+<code>  )</code>
+<code>  .<span class="hl-title function_ invoke__">map_err</span>(|err| anyhow::format_err!(<span class="hl-string">&quot;{err}&quot;</span>))?;</code>
+<code>}</code></pre>
+
+</figure>
+</section>
+<section id="Allocator">
+
+    <h2>
+    <a href="#Allocator">Allocator </a>
+    </h2>
+<p>The scenes we are going to render are fundamentally dynamically sized.
+They can contain arbitrary number of objects.
+So we can&rsquo;t just statically allocate all the memory up-front.
+Instead, there&rsquo;s a CLI argument which sets the amount of memory a ray tracer can use, and we should either manage with that, or return an error.
+So we do need to write our own allocator.
+But we&rsquo;ll try very hard to only allocate the memory we actually need, so we won&rsquo;t have to implement memory deallocation at all.
+So a simple bump allocator would do:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">struct</span> <span class="hl-title class_">Mem</span>&lt;<span class="hl-symbol">&#x27;m</span>&gt; {</code>
+<code>  raw: &amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> [<span class="hl-type">u8</span>],</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-meta">#[derive(Debug)]</span></code>
+<code><span class="hl-keyword">pub</span> <span class="hl-keyword">struct</span> <span class="hl-title class_">Oom</span>;</code>
+<code></code>
+<code><span class="hl-keyword">impl</span>&lt;<span class="hl-symbol">&#x27;m</span>&gt; Mem&lt;<span class="hl-symbol">&#x27;m</span>&gt; {</code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>(raw: &amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> [<span class="hl-type">u8</span>]) <span class="hl-punctuation">-&gt;</span> Mem&lt;<span class="hl-symbol">&#x27;m</span>&gt; {</code>
+<code>    Mem { raw }</code>
+<code>  }</code>
+<code></code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">alloc</span>&lt;T&gt;(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, t: T) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Result</span>&lt;&amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> T, Oom&gt; { ... }</code>
+<code></code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">alloc_array</span>&lt;T&gt;(</code>
+<code>    &amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>,</code>
+<code>    n: <span class="hl-type">usize</span>,</code>
+<code>    <span class="hl-keyword">mut</span> element: <span class="hl-keyword">impl</span> <span class="hl-title class_">FnMut</span>(<span class="hl-type">usize</span>) <span class="hl-punctuation">-&gt;</span> T,</code>
+<code>  ) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Result</span>&lt;&amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> [T], Oom&gt; { ... }</code>
+<code></code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">alloc_array_default</span>&lt;T: <span class="hl-built_in">Default</span>&gt;(</code>
+<code>    &amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>,</code>
+<code>    n: <span class="hl-type">usize</span>,</code>
+<code>  ) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Result</span>&lt;&amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> [T], Oom&gt; {</code>
+<code>    <span class="hl-keyword">self</span>.<span class="hl-title function_ invoke__">alloc_array</span>(n, |_| T::<span class="hl-title function_ invoke__">default</span>())</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>We can create an allocator from a slice of bytes, and then ask it to allocate values and arrays.
+Schematically, <code>alloc</code> looks like this:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-comment">// PSEUDOCODE, doesn&#x27;t handle alignment and is broken.</span></code>
+<code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">alloc</span>&lt;<span class="hl-symbol">&#x27;a</span>, T&gt;(</code>
+<code>  &amp;<span class="hl-symbol">&#x27;a</span> <span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>,</code>
+<code>  val: T,</code>
+<code>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Result</span>&lt;&amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> T, Oom&gt; {</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">size</span> = mem::size_of::&lt;T&gt;();</code>
+<code>  <span class="hl-keyword">if</span> <span class="hl-keyword">self</span>.raw.<span class="hl-title function_ invoke__">len</span>() &lt; size {</code>
+<code>    <span class="hl-comment">// Return error if there isn&#x27;t enough of memory.</span></code>
+<code>    <span class="hl-keyword">return</span> <span class="hl-title function_ invoke__">Err</span>(Oom);</code>
+<code>  }</code>
+<code></code>
+<code>  <span class="hl-comment">// Split off size_of::&lt;T&gt; bytes from the start,</span></code>
+<code>  <span class="hl-comment">// doing a little `mem::take` dance to placate</span></code>
+<code>  <span class="hl-comment">// the borrowchecker.</span></code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">res</span>: &amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> [<span class="hl-type">u8</span>] = {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">raw</span> = mem::<span class="hl-title function_ invoke__">take</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>.raw);</code>
+<code>    <span class="hl-keyword">let</span> (res, raw) = raw.<span class="hl-title function_ invoke__">split_at_mut</span>(size);</code>
+<code>    <span class="hl-keyword">self</span>.raw = raw;</code>
+<code>    res</code>
+<code>  }</code>
+<code></code>
+<code>  <span class="hl-comment">// Initialize the value</span></code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">res</span> = res <span class="hl-keyword">as</span> *<span class="hl-keyword">mut</span> [<span class="hl-type">u8</span>] <span class="hl-keyword">as</span> *<span class="hl-keyword">mut</span> <span class="hl-type">u8</span> <span class="hl-keyword">as</span> *<span class="hl-keyword">mut</span> T;</code>
+<code>  <span class="hl-keyword">unsafe</span> {</code>
+<code>    ptr::<span class="hl-title function_ invoke__">write</span>(res, val);</code>
+<code>    <span class="hl-title function_ invoke__">Ok</span>(&amp;<span class="hl-keyword">mut</span> *res)</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>To make this fully kosher we need to handle alignment as well, but I cut that bit out for brevity.</p>
+<p>For allocating arrays, it&rsquo;s useful if all-zeros bitpattern is a valid default instance of type, as that allows to skip element-wise initialization.
+This condition isn&rsquo;t easily expressible in today&rsquo;s Rust though, so we require initializing every array member.</p>
+<p>The result of an allocation is <code>&amp;'m T</code> &ndash; this is how we spell <code>Box&lt;T&gt;</code> on hard mode.</p>
+</section>
+<section id="Parsing">
+
+    <h2>
+    <a href="#Parsing">Parsing </a>
+    </h2>
+<p>The scene contains various objects, like spheres and planes:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">struct</span> <span class="hl-title class_">Sphere</span> {</code>
+<code>  <span class="hl-keyword">pub</span> center: v64, <span class="hl-comment">// v64 is [f64; 3]</span></code>
+<code>  <span class="hl-keyword">pub</span> radius: <span class="hl-type">f64</span>,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">pub</span> <span class="hl-keyword">struct</span> <span class="hl-title class_">Plane</span> {</code>
+<code>  <span class="hl-keyword">pub</span> origin: v64,</code>
+<code>  <span class="hl-keyword">pub</span> normal: v64,</code>
+<code>}</code></pre>
+
+</figure>
+<p>Usually, we&rsquo;d represent a scene as</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">struct</span> <span class="hl-title class_">Scene</span> {</code>
+<code>  <span class="hl-keyword">pub</span> camera: Camera,</code>
+<code>  <span class="hl-keyword">pub</span> spheres: <span class="hl-type">Vec</span>&lt;Sphere&gt;,</code>
+<code>  <span class="hl-keyword">pub</span> planes: <span class="hl-type">Vec</span>&lt;Plane&gt;,</code>
+<code>}</code></pre>
+
+</figure>
+<p>We <em>could</em> implement a resizable array (<code>Vec</code>), but doing that would require us to either leak memory, or to implement proper deallocation logic in our allocator, and add destructors to reliably trigger that.
+But destructors is exactly something we are trying to avoid in this exercise.
+So our scene will have to look like this instead:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">struct</span> <span class="hl-title class_">Scene</span>&lt;<span class="hl-symbol">&#x27;m</span>&gt; {</code>
+<code>  <span class="hl-keyword">pub</span> camera: Camera,</code>
+<code>  <span class="hl-keyword">pub</span> spheres: &amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> [Sphere],</code>
+<code>  <span class="hl-keyword">pub</span> planes: &amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> [Plane],</code>
+<code>}</code></pre>
+
+</figure>
+<p>And that means we want to know the number of objects we&rsquo;ll need upfront.
+The way we solve this problem is by doing two-pass parsing.
+In the first pass, we just count things, then we allocate them, then we actually parse them into allocated space.</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-title function_ invoke__">pub</span>(<span class="hl-keyword">crate</span>) <span class="hl-keyword">fn</span> <span class="hl-title function_">parse</span>&lt;<span class="hl-symbol">&#x27;m</span>, <span class="hl-symbol">&#x27;i</span>&gt;(</code>
+<code>  mem: &amp;<span class="hl-keyword">mut</span> Mem&lt;<span class="hl-symbol">&#x27;m</span>&gt;,</code>
+<code>  input: &amp;<span class="hl-symbol">&#x27;i</span> <span class="hl-type">str</span>,</code>
+<code>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Result</span>&lt;Scene&lt;<span class="hl-symbol">&#x27;m</span>&gt;, Error&lt;<span class="hl-symbol">&#x27;i</span>&gt;&gt; {</code>
+<code>  <span class="hl-comment">// Size the allocations.</span></code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">n_spheres</span> = <span class="hl-number">0</span>;</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">n_planes</span> = <span class="hl-number">0</span>;</code>
+<code>  <span class="hl-keyword">for</span> <span class="hl-variable">word</span> <span class="hl-keyword">in</span> input.<span class="hl-title function_ invoke__">split_ascii_whitespace</span>() {</code>
+<code>    <span class="hl-keyword">match</span> word {</code>
+<code>      <span class="hl-string">&quot;sphere&quot;</span> =&gt; n_spheres += <span class="hl-number">1</span>,</code>
+<code>      <span class="hl-string">&quot;plane&quot;</span> =&gt; n_planes += <span class="hl-number">1</span>,</code>
+<code>      _ =&gt; (),</code>
+<code>    }</code>
+<code>  }</code>
+<code></code>
+<code>  <span class="hl-comment">// Allocate.</span></code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">res</span> = Scene {</code>
+<code>    camera: <span class="hl-built_in">Default</span>::<span class="hl-title function_ invoke__">default</span>(),</code>
+<code>    spheres: mem.<span class="hl-title function_ invoke__">alloc_array_default</span>(n_spheres)?</code>
+<code>    planes: mem.<span class="hl-title function_ invoke__">alloc_array_default</span>(n_planes)?,</code>
+<code>  };</code>
+<code></code>
+<code>  <span class="hl-comment">// Parse _into_ the allocated scene.</span></code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">p</span> = Parser::<span class="hl-title function_ invoke__">new</span>(mem, input);</code>
+<code>  <span class="hl-title function_ invoke__">scene</span>(&amp;<span class="hl-keyword">mut</span> p, &amp;<span class="hl-keyword">mut</span> res)?;</code>
+<code>  <span class="hl-title function_ invoke__">Ok</span>(res)</code>
+<code>}</code></pre>
+
+</figure>
+<p>If an error is encountered during parsing, we want to create a helpful error message.
+If the message is fully dynamic, we&rsquo;d have to allocate it <em>into</em> <code>'m</code>, but it seems simpler to just re-use bits of input for error message.
+Hence, <code>Error&lt;'i&gt;</code> is tied to the input lifetime <code>'i</code>, rather memory lifetime <code>'m</code>.</p>
+</section>
+<section id="Nested-Objects">
+
+    <h2>
+    <a href="#Nested-Objects">Nested Objects </a>
+    </h2>
+<p>One interesting type of object on the scene is a mesh of triangles (for example, the teapot is just a bunch of triangles).
+A naive way to represent a bunch of triangles is to use a vector:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">struct</span> <span class="hl-title class_">Triangle</span> {</code>
+<code>  <span class="hl-keyword">pub</span> a: v64,</code>
+<code>  <span class="hl-keyword">pub</span> b: v64,</code>
+<code>  <span class="hl-keyword">pub</span> c: v64,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">type</span> <span class="hl-title class_">Mesh</span> = <span class="hl-type">Vec</span>&lt;Triangle&gt;;</code></pre>
+
+</figure>
+<p>This is wasteful: in a mesh, each edge is shared by two triangles.
+So a single vertex belongs to a bunch of triangles.
+If we store a vector of triangles, we are needlessly duplicating vertex data.
+A more compact representation is to store unique vertexes once, and to use indexes for sharing:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">struct</span> <span class="hl-title class_">Mesh</span> {</code>
+<code>  <span class="hl-keyword">pub</span> vertexes: <span class="hl-type">Vec</span>&lt;v64&gt;,</code>
+<code>  <span class="hl-keyword">pub</span> faces: <span class="hl-type">Vec</span>&lt;MeshFace&gt;,</code>
+<code>}</code>
+<code><span class="hl-comment">// Indexes point into vertexes vector.</span></code>
+<code><span class="hl-keyword">pub</span> <span class="hl-keyword">struct</span> <span class="hl-title class_">MeshFace</span> { a: <span class="hl-type">u32</span>, b: <span class="hl-type">u32</span>, c: <span class="hl-type">u32</span> }</code></pre>
+
+</figure>
+<p>Again, on hard mode that would be</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">struct</span> <span class="hl-title class_">Mesh</span>&lt;<span class="hl-symbol">&#x27;m</span>&gt; {</code>
+<code>  <span class="hl-keyword">pub</span> vertexes: &amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> [v64],</code>
+<code>  <span class="hl-keyword">pub</span> faces: &amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> [MeshFace],</code>
+<code>}</code></pre>
+
+</figure>
+<p>And a scene contains a bunch of meshes :</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">struct</span> <span class="hl-title class_">Scene</span>&lt;<span class="hl-symbol">&#x27;m</span>&gt; {</code>
+<code>  <span class="hl-keyword">pub</span> camera: Camera,</code>
+<code>  <span class="hl-keyword">pub</span> spheres: &amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> [Sphere],</code>
+<code>  <span class="hl-keyword">pub</span> planes: &amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> [Plane],</code>
+<code>  <span class="hl-keyword">pub</span> meshes: &amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> [Mesh&lt;<span class="hl-symbol">&#x27;m</span>&gt;],</code>
+<code>}</code></pre>
+
+</figure>
+<p>Note how, if the structure is recursive, we have &ldquo;owned pointers&rdquo; of <code>&amp;'m mut T&lt;'m&gt;</code> shape.
+Originally I worried that that would cause problem with variance, but it seems to work fine for ownership specifically.
+During processing, you still need <code>&amp;'a mut T&lt;'m&gt;</code> though.</p>
+<p>And that&rsquo;s why parsing functions hold an uncomfortable bunch of lifetimes:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">mesh</span>&lt;<span class="hl-symbol">&#x27;m</span>, <span class="hl-symbol">&#x27;i</span>&gt;(</code>
+<code>  p: &amp;<span class="hl-keyword">mut</span> Parser&lt;<span class="hl-symbol">&#x27;m</span>, <span class="hl-symbol">&#x27;i</span>, <span class="hl-symbol">&#x27;_</span>&gt;,</code>
+<code>  res: &amp;<span class="hl-keyword">mut</span> Mesh&lt;<span class="hl-symbol">&#x27;m</span>&gt;,</code>
+<code>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Result</span>&lt;(), Error&lt;<span class="hl-symbol">&#x27;i</span>&gt;&gt; { ... }</code></pre>
+
+</figure>
+<p>The parser <code>p</code> holds <code>&amp;'i str</code> input and a <code>&amp;'a mut Mem&lt;'m&gt;</code> memory.
+It parses input <em>into</em> a <code>&amp;'b mut Mesh&lt;'m&gt;</code>.</p>
+</section>
+<section id="Bounding-Volume-Hierarchy">
+
+    <h2>
+    <a href="#Bounding-Volume-Hierarchy">Bounding Volume Hierarchy </a>
+    </h2>
+<p>With <code>Scene&lt;'m&gt;</code> fully parsed, we can finally get to rendering the picture.
+A naive way to do this would be to iterate through each pixel, shooting a ray through it, and then do a nested iterations over every shape, looking for the closest intersection.
+That&rsquo;s going to be slow!
+The teapot model contains about 1k triangles, and we have 640*480 pixels, which gives us 307_200_000 ray-triangle intersection tests, which is quite slow even with multithreading.</p>
+<p>So we are going to speed this up.
+The idea is simple &mdash; just don&rsquo;t intersect a ray with each triangle.
+It is possible to quickly discard batches of triangles.
+If we have a  batch of triangles, we can draw a 3D box around them as a pre-processing step.
+Now if the ray doesn&rsquo;t intersect the bounding box, we know that it can&rsquo;t intersect any of the triangles.
+So we can use one test with a bounding box instead of many tests for each triangle.</p>
+<p>This is of course one-sided &mdash; if the ray intersects the box, it might still miss all of the triangles.
+But, if we place bounding boxes smartly (small boxes which cover many adjacent triangles), we can hope to skip a lot of work.</p>
+<p>We won&rsquo;t go for really smart ways of doing that, and instead will use a simple divide-and-conquer scheme.
+Specifically, we&rsquo;ll draw a large box around all triangles we have.
+Then, we&rsquo;ll note which dimension of the resulting box is the longest.
+If, for example, the box is very tall, we&rsquo;ll cut it in half horizontally, such that each half contains half of the triangles.
+Then, we&rsquo;ll recursively subdivide the two halves.</p>
+<p>In the end, we get a binary tree, where each node contains a bounding box and two children, whose bounding boxes are contained in the parent&rsquo;s bounding box.
+Leaves contains triangles.
+This construction is called a bounding volume hierarchy, bvh.</p>
+<p>To intersect the ray with bvh, we use a recursive procedure.
+Starting at the root node, we descend into children whose bounding boxes are intersected by the ray.
+Sometimes we&rsquo;ll have to descend into both children, but often enough at least one child&rsquo;s bounding box won&rsquo;t touch the ray, allowing us to completely skip the subtree.</p>
+<p>On easy mode Rust, we can code it like this:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">BoundingBox</span> {</code>
+<code>  <span class="hl-comment">// Opposite corners of the box.</span></code>
+<code>  lo: v64, hi: v64,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">Bvh</span> {</code>
+<code>  root: BvhNode</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">enum</span> <span class="hl-title class_">BvhNode</span> {</code>
+<code>  Split {</code>
+<code>    bb: BoundingBox,</code>
+<code>    children: [<span class="hl-type">Box</span>&lt;BvhNode&gt;; <span class="hl-number">2</span>],</code>
+<code>    <span class="hl-comment">/// Which of X,Y,Z dimensions was used</span></code>
+<code>    <span class="hl-comment">// to cut the bb in two.</span></code>
+<code>    axis: <span class="hl-type">u8</span>,</code>
+<code>  }</code>
+<code>  Leaf {</code>
+<code>    bb: BoundingBox,</code>
+<code>    <span class="hl-comment">/// Index of the triangle in a mesh.</span></code>
+<code>    triangle: <span class="hl-type">u32</span>,</code>
+<code>  }</code>
+<code>}</code></pre>
+
+</figure>
+<p>On hard mode, we don&rsquo;t really love all those separate boxes, we love arrays!
+So what we&rsquo;d rather have is</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">struct</span> <span class="hl-title class_">Bvh</span>&lt;<span class="hl-symbol">&#x27;m</span>&gt; {</code>
+<code>  splits: &amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> [BvhSplit],</code>
+<code>  leaves: &amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> [BvhLeaf],</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">BvhSplit</span> {</code>
+<code>  <span class="hl-comment">/// Index into either splits or leaves.</span></code>
+<code>  <span class="hl-comment">/// The `tag` is in the highest bit.</span></code>
+<code>  children: [<span class="hl-type">u32</span>; <span class="hl-number">2</span>],</code>
+<code>  bb: BoundingBox,</code>
+<code>  axis: <span class="hl-type">u8</span>,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">BvhLeaf</span> {</code>
+<code>  face: <span class="hl-type">u32</span>,</code>
+<code>  bb: BoundingBox,</code>
+<code>}</code></pre>
+
+</figure>
+<p>So we want to write the following function which recursively constructs a bvh for a mesh:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">build</span>(</code>
+<code>  mem: &amp;<span class="hl-keyword">mut</span> Mem&lt;<span class="hl-symbol">&#x27;m</span>&gt;,</code>
+<code>  mesh: &amp;Mesh&lt;<span class="hl-symbol">&#x27;m</span>&gt;,</code>
+<code>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Result</span>&lt;Bvh&lt;<span class="hl-symbol">&#x27;m</span>&gt;, Oom&gt; { ... }</code></pre>
+
+</figure>
+<p>The problem is, unlike the parser, we can&rsquo;t cheaply determine the number of leaves and splits without actually building the whole tree.</p>
+</section>
+<section id="Scratch-Space">
+
+    <h2>
+    <a href="#Scratch-Space">Scratch Space </a>
+    </h2>
+<p>So what we are going to do here is to allocate a pointer-tree structure into some scratch space, and then copy that into an <code>&amp;'m mut</code> array.
+How do we find the scratch space?
+Our memory is <code>&amp;'m [u8]</code>.
+We allocate stuff from the start of the region.
+So we can split of some amount of scratch space from the end:</p>
+
+<figure class="code-block">
+
+
+<pre><code>&amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> [<span class="hl-type">u8</span>] <span class="hl-punctuation">-&gt;</span> (&amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> [<span class="hl-type">u8</span>], &amp;<span class="hl-symbol">&#x27;s</span> <span class="hl-keyword">mut</span> [<span class="hl-type">u8</span>])</code></pre>
+
+</figure>
+<p>Stuff we allocate into the first half is allocated &ldquo;permanently&rdquo;.
+Stuff we allocate into the second half is allocated temporarily.
+When we drop temp buffer, we can reclaim all that space.</p>
+<p>This&hellip; probably is the most sketchy part of the whole endeavor.
+It is <code>unsafe</code>, requires lifetimes casing, and I actually can&rsquo;t get it past miri.
+But it should be fine, right?</p>
+<p>So, I have the following thing API:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">impl</span> <span class="hl-title class_">Mem</span>&lt;<span class="hl-symbol">&#x27;m</span>&gt; {</code>
+<code>  <span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">with_scratch</span>&lt;T&gt;(</code>
+<code>    &amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>,</code>
+<code>    size: <span class="hl-type">usize</span>,</code>
+<code>    f: <span class="hl-keyword">impl</span> <span class="hl-title class_">FnOnce</span>(&amp;<span class="hl-keyword">mut</span> Mem&lt;<span class="hl-symbol">&#x27;m</span>&gt;, &amp;<span class="hl-keyword">mut</span> Mem&lt;<span class="hl-symbol">&#x27;_</span>&gt;) <span class="hl-punctuation">-&gt;</span> T,</code>
+<code>  ) <span class="hl-punctuation">-&gt;</span> T { ... }</code>
+<code>}</code></pre>
+
+</figure>
+<p>It can be used like this:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-meta">#[test]</span></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">test_scratch</span>() {</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">buf</span> = [<span class="hl-number">0u8</span>; <span class="hl-number">4</span>];</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">mem</span> = Mem::<span class="hl-title function_ invoke__">new</span>(&amp;<span class="hl-keyword">mut</span> buf);</code>
+<code></code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">x</span> = mem.<span class="hl-title function_ invoke__">alloc</span>(<span class="hl-number">0u8</span>).<span class="hl-title function_ invoke__">unwrap</span>();</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">y</span> = mem.<span class="hl-title function_ invoke__">with_scratch</span>(<span class="hl-number">2</span>, |mem, scratch| {</code>
+<code>    <span class="hl-comment">// Here, we can allocate _permanent_ stuff from `mem`,</span></code>
+<code>    <span class="hl-comment">// and temporary stuff from `scratch`.</span></code>
+<code>    <span class="hl-comment">// Only permanent stuff can escape.</span></code>
+<code></code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">y</span> = mem.<span class="hl-title function_ invoke__">alloc</span>(<span class="hl-number">1u8</span>).<span class="hl-title function_ invoke__">unwrap</span>();</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">z</span> = scratch.<span class="hl-title function_ invoke__">alloc</span>(<span class="hl-number">2u8</span>).<span class="hl-title function_ invoke__">unwrap</span>();</code>
+<code>    <span class="hl-built_in">assert_eq!</span>((*x, *y, *z), (<span class="hl-number">0</span>, <span class="hl-number">1</span>, <span class="hl-number">2</span>));</code>
+<code></code>
+<code>    <span class="hl-comment">// The rest of memory is occupied by scratch.</span></code>
+<code>    <span class="hl-built_in">assert!</span>(mem.<span class="hl-title function_ invoke__">alloc</span>(<span class="hl-number">0u8</span>).<span class="hl-title function_ invoke__">is_err</span>());</code>
+<code></code>
+<code>    y <span class="hl-comment">// Returning z here fails.</span></code>
+<code>  });</code>
+<code></code>
+<code>  <span class="hl-comment">// The scratch memory is now reclaimed.</span></code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">z</span> = mem.<span class="hl-title function_ invoke__">alloc</span>(<span class="hl-number">3u8</span>).<span class="hl-title function_ invoke__">unwrap</span>();</code>
+<code>  <span class="hl-built_in">assert_eq!</span>((*x, *y, *z), (<span class="hl-number">0</span>, <span class="hl-number">1</span>, <span class="hl-number">3</span>));</code>
+<code>  <span class="hl-built_in">assert_eq!</span>(buf, [<span class="hl-number">0</span>, <span class="hl-number">1</span>, <span class="hl-number">3</span>, <span class="hl-number">0</span>]);</code>
+<code>  <span class="hl-comment">// Will fail to compile.</span></code>
+<code>  <span class="hl-comment">// assert_eq!(*x, 0);</span></code>
+<code>}</code></pre>
+
+</figure>
+<p>And here&rsquo;s how <code>with_scratch</code> implemented:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">with_scratch</span>&lt;T&gt;(</code>
+<code>  &amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>,</code>
+<code>  size: <span class="hl-type">usize</span>,</code>
+<code>  f: <span class="hl-keyword">impl</span> <span class="hl-title class_">FnOnce</span>(&amp;<span class="hl-keyword">mut</span> Mem&lt;<span class="hl-symbol">&#x27;m</span>&gt;, &amp;<span class="hl-keyword">mut</span> Mem&lt;<span class="hl-symbol">&#x27;_</span>&gt;) <span class="hl-punctuation">-&gt;</span> T,</code>
+<code>) <span class="hl-punctuation">-&gt;</span> T {</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">raw</span> = mem::<span class="hl-title function_ invoke__">take</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>.raw);</code>
+<code></code>
+<code>  <span class="hl-comment">// Split off scratch space.</span></code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">mid</span> = raw.<span class="hl-title function_ invoke__">len</span>() - size;</code>
+<code>  <span class="hl-keyword">let</span> (mem, scratch) = raw.<span class="hl-title function_ invoke__">split_at_mut</span>(mid);</code>
+<code></code>
+<code>  <span class="hl-keyword">self</span>.raw = mem;</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">res</span> = <span class="hl-title function_ invoke__">f</span>(<span class="hl-keyword">self</span>, &amp;<span class="hl-keyword">mut</span> Mem::<span class="hl-title function_ invoke__">new</span>(scratch));</code>
+<code></code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">data</span> = <span class="hl-keyword">self</span>.raw.<span class="hl-title function_ invoke__">as_mut_ptr</span>();</code>
+<code>  <span class="hl-comment">// Glue the scratch space back in.</span></code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">len</span> = <span class="hl-keyword">self</span>.raw.<span class="hl-title function_ invoke__">len</span>() + size;</code>
+<code>  <span class="hl-comment">// This makes miri unhappy, any suggestions? :(</span></code>
+<code>  <span class="hl-keyword">self</span>.raw = <span class="hl-keyword">unsafe</span> { slice::<span class="hl-title function_ invoke__">from_raw_parts_mut</span>(data, len) };</code>
+<code>  res</code>
+<code>}</code></pre>
+
+</figure>
+<p>With this infrastructure in place, we can finally implement bvh construction!
+We&rsquo;ll do it in three steps:</p>
+<ol>
+<li>
+Split of half the memory into a scratch space.
+</li>
+<li>
+Build a dynamically-sized tree in that space, counting leaves and interior nodes.
+</li>
+<li>
+Allocate arrays of the right size in the permanent space, and copy data over once.
+</li>
+</ol>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">pub</span> <span class="hl-keyword">struct</span> <span class="hl-title class_">Bvh</span>&lt;<span class="hl-symbol">&#x27;m</span>&gt; {</code>
+<code>  splits: &amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> [BvhSplit],</code>
+<code>  leaves: &amp;<span class="hl-symbol">&#x27;m</span> <span class="hl-keyword">mut</span> [BvhLeaf],</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">BvhSplit</span> {</code>
+<code>  children: [<span class="hl-type">u32</span>; <span class="hl-number">2</span>],</code>
+<code>  bb: BoundingBox,</code>
+<code>  axis: <span class="hl-type">u8</span>,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">BvhLeaf</span> {</code>
+<code>  face: <span class="hl-type">u32</span>,</code>
+<code>  bb: BoundingBox,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-comment">// Temporary tree we store in the scratch space.</span></code>
+<code><span class="hl-keyword">enum</span> <span class="hl-title class_">Node</span>&lt;<span class="hl-symbol">&#x27;s</span>&gt; {</code>
+<code>  Split {</code>
+<code>    children: [&amp;<span class="hl-symbol">&#x27;s</span> <span class="hl-keyword">mut</span> Node&lt;<span class="hl-symbol">&#x27;s</span>&gt;; <span class="hl-number">2</span>],</code>
+<code>    bb: BoundingBox,</code>
+<code>    axis: <span class="hl-type">u8</span></code>
+<code>  },</code>
+<code>  Leaf { face: <span class="hl-type">u32</span>, bb: BoundingBox },</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-title function_">build</span>(</code>
+<code>  mem: &amp;<span class="hl-keyword">mut</span> Mem&lt;<span class="hl-symbol">&#x27;m</span>&gt;,</code>
+<code>  mesh: &amp;Mesh&lt;<span class="hl-symbol">&#x27;m</span>&gt;,</code>
+<code>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Result</span>&lt;Bvh&lt;<span class="hl-symbol">&#x27;m</span>&gt;, Oom&gt; {</code>
+<code>  <span class="hl-keyword">let</span> <span class="hl-variable">free_mem</span> = mem.<span class="hl-title function_ invoke__">free</span>();</code>
+<code>  mem.<span class="hl-title function_ invoke__">with_scratch</span>(free_mem / <span class="hl-number">2</span>, |mem, scratch| {</code>
+<code>    <span class="hl-keyword">let</span> (node, n_splits, n_leaves) =</code>
+<code>      <span class="hl-title function_ invoke__">build_scratch</span>(scratch, mesh);</code>
+<code></code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">res</span> = Bvh {</code>
+<code>      splits: mem.<span class="hl-title function_ invoke__">alloc_array_default</span>(n_splits <span class="hl-keyword">as</span> <span class="hl-type">usize</span>)?,</code>
+<code>      leaves: mem.<span class="hl-title function_ invoke__">alloc_array_default</span>(n_leaves <span class="hl-keyword">as</span> <span class="hl-type">usize</span>)?,</code>
+<code>    };</code>
+<code>    <span class="hl-title function_ invoke__">copy</span>(&amp;<span class="hl-keyword">mut</span> res, &amp;node);</code>
+<code></code>
+<code>    <span class="hl-title function_ invoke__">Ok</span>(res)</code>
+<code>  })</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">build_scratch</span>&lt;<span class="hl-symbol">&#x27;s</span>&gt;(</code>
+<code>  mem: &amp;<span class="hl-keyword">mut</span> Mem&lt;<span class="hl-symbol">&#x27;s</span>&gt;,</code>
+<code>  mesh: &amp;Mesh&lt;<span class="hl-symbol">&#x27;_</span>&gt;,</code>
+<code>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">Result</span>&lt;(&amp;<span class="hl-symbol">&#x27;s</span> <span class="hl-keyword">mut</span> Node&lt;<span class="hl-symbol">&#x27;s</span>&gt;, <span class="hl-type">usize</span>, <span class="hl-type">usize</span>), Oom&gt; {</code>
+<code>  ...</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">copy</span>&lt;<span class="hl-symbol">&#x27;m</span>, <span class="hl-symbol">&#x27;s</span>&gt;(res: &amp;<span class="hl-keyword">mut</span> Bvh&lt;<span class="hl-symbol">&#x27;m</span>&gt;, node: &amp;Node&lt;<span class="hl-symbol">&#x27;s</span>&gt;) {</code>
+<code>  ...</code>
+<code>}</code></pre>
+
+</figure>
+<p>And that&rsquo;s it!
+The thing actually works, miri complaints notwithstanding!</p>
+</section>
+<section id="Conclusions">
+
+    <h2>
+    <a href="#Conclusions">Conclusions </a>
+    </h2>
+<p>Actually, I am impressed.
+I was certain that this won&rsquo;t actually work out, and that I&rsquo;d have to write copious amount of unsafe to get the runtime behavior I want.
+Specifically, I believed that <code>&amp;'m mut T&lt;'m&gt;</code> variance issue would force my hand to add <code>'m</code>, <code>'mm</code>, <code>'mmm</code> and further lifetimes, but that didn&rsquo;t happen.
+For &ldquo;owning&rdquo; pointers, <code>&amp;'m mut T&lt;'m'&gt;</code> turned out to work fine!
+It&rsquo;s only when processing you might need extra lifetimes.
+<code>Parser&lt;'m, 'i, 'a&gt;</code> is at least two lifetimes more than I am completely comfortable with, but I guess I can live with that.</p>
+<p>I wonder how far this style of programming can be pushed.
+Aesthetically, I quite like that I can tell precisely how much memory the program would use!</p>
+<p>Code for the post: <a href="http://github.com/matklad/crt">http://github.com/matklad/crt</a>.</p>
+<p>Discussion on <a href="https://old.reddit.com/r/rust/comments/xx7xci/blog_post_hard_mode_rust/">/r/rust</a>.</p>
+</section>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2022-10-06-hard-mode-rust.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

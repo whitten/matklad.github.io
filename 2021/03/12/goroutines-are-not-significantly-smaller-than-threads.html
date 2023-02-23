@@ -1,0 +1,212 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Goroutines Are Not Significantly Smaller Than Threads</title>
+  <meta name="description" content="The most commonly cited drawback of OS-level threads is that they use a lot of RAM.
+This is not true on Linux.">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2021/03/12/goroutines-are-not-significantly-smaller-than-threads.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Goroutines-Are-Not-Significantly-Smaller-Than-Threads">Goroutines Are Not Significantly Smaller Than Threads <time datetime="2021-03-12">Mar 12, 2021</time></a>
+    </h1>
+<p>The most commonly cited drawback of OS-level threads is that they use a lot of RAM.
+This is not true on Linux.</p>
+<p>Let&rsquo;s compare memory footprint of 10_000 Linux threads with 10_000 goroutines.
+We spawn 10k workers, which sleep for about 10 seconds, waking up every 10 milliseconds.
+Each worker is staggered by a pseudorandom delay up to 200 milliseconds to avoid the thundering herd problem.</p>
+
+<figure class="code-block">
+<figcaption class="title">main.rs</figcaption>
+
+
+<pre><code><span class="hl-keyword">use</span> std::{thread, time::Duration};</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">main</span>() {</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">threads</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>    <span class="hl-keyword">for</span> <span class="hl-variable">i</span> <span class="hl-keyword">in</span> <span class="hl-number">0u32</span>..<span class="hl-number">10_000</span> {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">t</span> = thread::<span class="hl-title function_ invoke__">spawn</span>(<span class="hl-keyword">move</span> || {</code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">bad_hash</span> = i.<span class="hl-title function_ invoke__">wrapping_mul</span>(<span class="hl-number">2654435761</span>) % <span class="hl-number">200_000</span>;</code>
+<code>            thread::<span class="hl-title function_ invoke__">sleep</span>(Duration::<span class="hl-title function_ invoke__">from_micros</span>(bad_hash <span class="hl-keyword">as</span> <span class="hl-type">u64</span>));</code>
+<code>            <span class="hl-keyword">for</span> <span class="hl-variable">_</span> <span class="hl-keyword">in</span> <span class="hl-number">0</span>..<span class="hl-number">1000</span> {</code>
+<code>                thread::<span class="hl-title function_ invoke__">sleep</span>(Duration::<span class="hl-title function_ invoke__">from_millis</span>(<span class="hl-number">10</span>));</code>
+<code>            }</code>
+<code>        });</code>
+<code>        threads.<span class="hl-title function_ invoke__">push</span>(t);</code>
+<code>    }</code>
+<code></code>
+<code>    <span class="hl-keyword">for</span> <span class="hl-variable">t</span> <span class="hl-keyword">in</span> threads {</code>
+<code>        t.<span class="hl-title function_ invoke__">join</span>().<span class="hl-title function_ invoke__">unwrap</span>()</code>
+<code>    }</code>
+<code>}</code></pre>
+
+</figure>
+
+<figure class="code-block">
+<figcaption class="title">main.go</figcaption>
+
+
+<pre><code><span class="hl-keyword">package</span> main</code>
+<code></code>
+<code><span class="hl-keyword">import</span> (</code>
+<code>    <span class="hl-string">&quot;sync&quot;</span></code>
+<code>    <span class="hl-string">&quot;time&quot;</span></code>
+<code>)</code>
+<code></code>
+<code><span class="hl-function"><span class="hl-keyword">func</span> <span class="hl-title">main</span><span class="hl-params">()</span></span> {</code>
+<code>    <span class="hl-keyword">var</span> wg sync.WaitGroup</code>
+<code>    <span class="hl-keyword">for</span> i := <span class="hl-type">uint32</span>(<span class="hl-number">0</span>); i &lt; <span class="hl-number">10</span>_000; i++ {</code>
+<code>        i := i</code>
+<code>        wg.Add(<span class="hl-number">1</span>)</code>
+<code>        <span class="hl-keyword">go</span> <span class="hl-function"><span class="hl-keyword">func</span><span class="hl-params">()</span></span> {</code>
+<code>            <span class="hl-keyword">defer</span> wg.Done()</code>
+<code>            bad_hash := (i * <span class="hl-number">2654435761</span>) % <span class="hl-number">200</span>_000</code>
+<code>            time.Sleep(time.Duration(bad_hash) * time.Microsecond)</code>
+<code>            <span class="hl-keyword">for</span> j := <span class="hl-number">0</span>; j &lt; <span class="hl-number">1000</span>; j++ {</code>
+<code>                time.Sleep(<span class="hl-number">10</span> * time.Millisecond)</code>
+<code>            }</code>
+<code>        }()</code>
+<code>    }</code>
+<code>    wg.Wait()</code>
+<code>}</code></pre>
+
+</figure>
+<p>We use <code>time</code> utility to measure memory usage:</p>
+
+<figure class="code-block">
+<figcaption class="title">t</figcaption>
+
+
+<pre><code><span class="hl-meta">#!/bin/sh</span></code>
+<code><span class="hl-built_in">command</span> time --format <span class="hl-string">&#x27;real %es\nuser %Us\nsys  %Ss\nrss  %Mk&#x27;</span> <span class="hl-string">&quot;<span class="hl-variable">$@</span>&quot;</span></code></pre>
+
+</figure>
+<p>The results:</p>
+
+<figure class="code-block">
+
+
+<pre><code>λ rustc main.rs -C opt-level=3 &amp;&amp; ./t ./main</code>
+<code>real 10.35s</code>
+<code>user 4.96s</code>
+<code>sys  16.06s</code>
+<code>rss  94472k</code>
+<code></code>
+<code>λ go build main.go &amp;&amp; ./t ./main</code>
+<code>real 10.92s</code>
+<code>user 13.30s</code>
+<code>sys  0.55s</code>
+<code>rss  34924k</code></pre>
+
+</figure>
+<p>A thread is only <strong><strong>3</strong></strong> times as large as a goroutine.
+Absolute numbers are also significant: 10k threads require only 100 megabytes of overhead.
+If the application does 10k concurrent things, 100mb might be negligible.</p>
+
+<aside class="block">
+<div class="title">Correction</div>
+<p>As pointed out in comments, using solely RSS to compare memory usage of goroutines and threads is wrong.
+Thread bookkeeping is managed by the kernel, using kernel&rsquo;s own data structures, so not all overhead is accounted for by RSS.
+In contrast, goroutines are managed by the userspace, and RSS does account for this.</p>
+<p>In particular, 10k threads with default stack sizes need about 40mb of page tables to map virtual memory.</p>
+
+</aside>
+  <hr>
+<p>Note that it is wrong to use this benchmark to compare performance of threads and goroutines.
+The workload is representative for measuring absolute memory overhead, but is not representative for time overhead.</p>
+<p>That being said, it is possible to explain why threads need 21 seconds of CPU time while goroutines need only 14.
+Go runtime spawns a thread per CPU-core, and tries hard to keep each goroutine tied to specific thread (and, by extension, CPU).
+Threads by default migrate between CPUs, which incurs synchronization overhead.
+Pinning threads to cores in a round-robin fashion removes this overhead:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-title function_">$</span> cargo build --release &amp;&amp; ./t ./target/release/main --pin-to-core</code>
+<code><span class="hl-output">    Finished release [optimized] target(s) in 0.00s</span></code>
+<code><span class="hl-output">real 10.36s</span></code>
+<code><span class="hl-output">user 3.01s</span></code>
+<code><span class="hl-output">sys  9.08s</span></code>
+<code><span class="hl-output">rss  94856k</span></code></pre>
+
+</figure>
+<p>The total CPU time now is approximately the same, but the distribution is different.
+On this workload, goroutine scheduler spends roughly the same amount of cycles in the userspace that the thread scheduler spends in the kernel.</p>
+<p>Code for the benchmarks is available here: <a href="https://github.com/matklad/10k_linux_threads">matklad/10k_linux_threads</a>.</p>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2021-03-12-goroutines-are-not-significantly-smaller-than-threads.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

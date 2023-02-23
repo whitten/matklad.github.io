@@ -1,0 +1,253 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Large Rust Workspaces</title>
+  <meta name="description" content="In this article, I'll share my experience with organizing large Rust projects.
+This is in no way authoritative --- just some tips I've discovered through trial and error.">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2021/08/22/large-rust-workspaces.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Large-Rust-Workspaces">Large Rust Workspaces <time datetime="2021-08-22">Aug 22, 2021</time></a>
+    </h1>
+<p>In this article, I&rsquo;ll share my experience with organizing large Rust projects.
+This is in no way authoritative &mdash; just some tips I&rsquo;ve discovered through trial and error.</p>
+<p>Cargo, Rust&rsquo;s build system, follows convention over configuration principle.
+It provides a set of good defaults for small projects, and it is especially well-tailored for public crates.io libraries.
+The defaults are not perfect, but they are good enough.
+The resulting ecosystem-wide consistency is also welcome.</p>
+<p>However, Cargo is less opinionated when it comes to large, multi-crate projects, organized as a Cargo workspace.
+Workspaces are flexible &mdash; Cargo doesn&rsquo;t have a preferred layout for them.
+As a result, people try different things, with varying degrees of success.</p>
+<p>To cut to the chase, I think for projects in between ten thousand and one million lines of code, the flat layout makes the most sense.
+rust-analyzer (200k lines) is good example here.
+The <a href="https://github.com/rust-analyzer/rust-analyzer">repository</a> is laid out this:</p>
+
+<figure class="code-block">
+
+
+<pre><code>rust-analyzer/</code>
+<code>  Cargo.toml</code>
+<code>  Cargo.lock</code>
+<code>  crates/</code>
+<code>    rust-analyzer/</code>
+<code>    hir/</code>
+<code>    hir_def/</code>
+<code>    hir_ty/</code>
+<code>    ...</code></pre>
+
+</figure>
+<p>In the root of the repo, Cargo.toml defines a virtual manifest:</p>
+
+<figure class="code-block">
+<figcaption class="title">Cargo.toml</figcaption>
+
+
+<pre><code><span class="hl-section">[workspace]</span></code>
+<code><span class="hl-attr">members</span> = [<span class="hl-string">&quot;crates/*&quot;</span>]</code></pre>
+
+</figure>
+<p>Everything else (including rust-analyzer &ldquo;main&rdquo; crate) is nested one-level deep under <code>crates/</code>.
+The name of each directory is equal to the name of the crate:</p>
+
+<figure class="code-block">
+<figcaption class="title">crates/hir_def/Cargo.toml</figcaption>
+
+
+<pre><code>[package]</code>
+<code>name = "hir_def"</code>
+<code>version = "0.0.0"</code>
+<code>edition = "2018"</code></pre>
+
+</figure>
+<p>At the time of writing, there are 32 different subfolders in <code>crates/</code>.</p>
+<section id="Flat-Is-Better-Than-Nested">
+
+    <h2>
+    <a href="#Flat-Is-Better-Than-Nested">Flat Is Better Than Nested </a>
+    </h2>
+<p>It&rsquo;s interesting that this advice goes against the natural tendency to just organize everything hierarchically:</p>
+
+<figure class="code-block">
+
+
+<pre><code>rust-analyzer/</code>
+<code>  Cargo.toml</code>
+<code>  src/</code>
+<code>  hir/</code>
+<code>    Cargo.toml</code>
+<code>    src/</code>
+<code>    def/</code>
+<code>    ty/</code></pre>
+
+</figure>
+<p>There are several reasons why trees are inferior in this case.</p>
+<p><em>First</em>, the Cargo-level namespace of crates is flat.
+It&rsquo;s not possible to write <code>hir::def</code> in Cargo.toml, so crates typically have prefixes in their names.
+Tree layout creates an alternative hierarchy, which adds a possibility for inconsistencies.</p>
+<p><em>Second</em>, even comparatively large lists are easier to understand at a glance than even small trees.
+<code>ls ./crates</code> gives immediate bird&rsquo;s eye view of the project, and this view is small enough:</p>
+
+<figure class="code-block">
+
+
+<pre><code>16:22:57|~/projects/rust-analyzer|master✓</code>
+<code>λ ls ./crates</code>
+<code>base_db</code>
+<code>cfg</code>
+<code>flycheck</code>
+<code>hir</code>
+<code>hir_def</code>
+<code>hir_expand</code>
+<code>hir_ty</code>
+<code>ide</code>
+<code>ide_assists</code>
+<code>ide_completion</code>
+<code>ide_db</code>
+<code>ide_diagnostics</code>
+<code>ide_ssr</code>
+<code>limit</code>
+<code>mbe</code>
+<code>parser</code>
+<code>paths</code>
+<code>proc_macro_api</code>
+<code>proc_macro_srv</code>
+<code>proc_macro_test</code>
+<code>profile</code>
+<code>project_model</code>
+<code>rust-analyzer</code>
+<code>sourcegen</code>
+<code>stdx</code>
+<code>syntax</code>
+<code>test_utils</code>
+<code>text_edit</code>
+<code>toolchain</code>
+<code>tt</code>
+<code>vfs</code></pre>
+
+</figure>
+<p>Doing the same for a tree-based layout is harder.
+Looking at a single level doesn&rsquo;t tell you which folders contains nested crates.
+Looking at <em>all</em> level lists too many folders.
+Looking only at folder that contain Cargo.toml gives the right result, but is not as trivial as just <code>ls</code>.</p>
+<p>It is true that nested structure scales better than a flat one.
+But the constant matters &mdash; until you hit a million lines of code, the number of crates in the project will probably fit on one screen.</p>
+<p><em>Finally</em>, the last problem with hierarchical layout is that there are no perfect hierarchies.
+With a flat structure, adding or splitting the crates is trivial.
+With a tree, you need to figure out where to put the new crate, and, if there isn&rsquo;t a perfect match for it already, you&rsquo;ll have to either:</p>
+<ul>
+<li>
+add a stupid mostly empty folder near the top
+</li>
+<li>
+add a catch-all utils folder
+</li>
+<li>
+place the code in a known suboptimal directory.
+</li>
+</ul>
+<p>This is a significant issue for long-lived multi-person projects &mdash; tree structure tends to deteriorate over time, while flat structure doesn&rsquo;t need maintenance.</p>
+</section>
+<section id="Smaller-Tips">
+
+    <h2>
+    <a href="#Smaller-Tips">Smaller Tips </a>
+    </h2>
+<p>Make the root of the workspace a virtual manifest.
+It might be tempting to put the main crate into the root, but that pollutes the root with <code>src/</code>, requires passing <code>--workspace</code> to every Cargo command, and adds an exception to an otherwise consistent structure.</p>
+<p>Don&rsquo;t succumb to the temptation to strip common prefix from folder names.
+If each crate is named exactly as the folder it lives in, navigation and renames become easier.
+Cargo.tomls of reverse dependencies mention both the folder and the crate name, it&rsquo;s useful when they are exactly the same.</p>
+<p>For large projects a lot of repository bloat often comes from ad-hoc automation &mdash; Makefiles and various prepare.sh scripts here and there.
+To avoid both the bloat and proliferation of ad-hoc workflows, write all automation in Rust in a dedicated crate.
+One pattern useful for this is <a href="https://github.com/matklad/cargo-xtask"><code>cargo xtask</code></a>.</p>
+<p>Use <code>version = "0.0.0"</code> for internal crates you don&rsquo;t intend to publish.
+If you do want to publish a subset of crates with proper semver API, be very deliberate about them.
+It probably makes sense to extract all such crates into a separate top-level folder, <code>libs/</code>.
+It makes it easier to check that things in <code>libs/</code> don&rsquo;t use things from <code>crates/</code>.</p>
+<p>Some crates consist only of a single-file.
+For those, it is tempting to flatten out the <code>src</code> directory and keep <code>lib.rs</code> and <code>Cargo.toml</code> in the same directory.
+I suggest not doing that &mdash; even if crate is single file now, it might get expanded later.</p>
+
+<aside class="admn note">
+<i class="fa fa-info-circle"></i>
+<div><p>This post is a part of <a href="https://matklad.github.io/2021/09/05/Rust100k.html">One Hundred Thousand Lines of Rust</a> series.</p>
+</div>
+</aside></section>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2021-08-22-large-rust-workspaces.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

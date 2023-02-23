@@ -1,0 +1,361 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Min of Three</title>
+  <meta name="description" content="How to find a minimum of three double numbers? It may be surprising to you (it
+certainly was to me), but there is more than one way to do it, and with big
+difference in performance as well. It is possible to make this simple
+calculation significantly faster by utilizing
+CPU level parallelism.">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2017/03/12/min-of-three.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Min-of-Three">Min of Three <time datetime="2017-03-12">Mar 12, 2017</time></a>
+    </h1>
+<p>How to find a minimum of three <code>double</code> numbers? It may be surprising to you (it
+certainly was to me), but there is more than one way to do it, and with big
+difference in performance as well. It is possible to make this simple
+calculation significantly faster by utilizing
+<a href="https://en.wikipedia.org/wiki/Superscalar_processor">CPU level parallelism</a>.</p>
+<p>The phenomenon described in this blog post was observed in <a href="https://users.rust-lang.org/t/performance-issue-with-c-array-like-computation-2-times-worst-than-naive-java/9807">this
+thread</a> of the Rust forum. I am not the one who found out what is
+going on, I am just writing it down :)</p>
+<p>We will be using Rust, but the language is not important, the original program
+was in Java. What will turn out to be important is CPU architecture. The laptop
+on which the measurements are done has <code>i7-3612QM</code>.</p>
+<section id="Test-subject">
+
+    <h2>
+    <a href="#Test-subject">Test subject </a>
+    </h2>
+<p>We will be measuring <a href="https://en.wikipedia.org/wiki/Dynamic_time_warping">dynamic time warping</a> algorithm. This algorithm
+calculates a distance between two real number sequences, <code>xs</code> and <code>ys</code>. It is
+very similar to <a href="https://en.wikipedia.org/wiki/Wagner%E2%80%93Fischer_algorithm">edit distance</a> or <a href="https://en.wikipedia.org/wiki/Needleman%E2%80%93Wunsch_algorithm">Needleman–Wunsch</a>,
+because it uses the same dynamic programming structure.</p>
+<p>The main equation is</p>
+
+<figure class="code-block">
+
+
+<pre><code>dtw[i, j] =</code>
+<code>    min(dtw[i-1, j-1], dtw[i, j-1], [i-1, j]) + (xs[i] - ys[i])^2</code></pre>
+
+</figure>
+<p>That is, we calculate the distance between each pair of prefixes of <code>xs</code> and
+<code>ys</code> using the distances from three smaller pairs. This calculation can be
+represented as a table where each cell depends on three others:</p>
+
+<figure>
+
+<img alt="Dynamic programming 2D table" src="/assets/min3_table.png">
+</figure>
+<p>It is possible to avoid storing the whole table explicitly. Each row depends
+only on the previous one, so we need to store only two rows at a time.</p>
+
+<figure>
+
+<img alt="Dynamic programming 2 rows" src="/assets/min3_rows.png">
+</figure>
+<p>Here is the Rust code for this version:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">dtw</span>(xs: &amp;[<span class="hl-type">f64</span>], ys: &amp;[<span class="hl-type">f64</span>]) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">f64</span> {</code>
+<code>    <span class="hl-comment">// assume equal lengths for simplicity</span></code>
+<code>    <span class="hl-built_in">assert_eq!</span>(xs.<span class="hl-title function_ invoke__">len</span>(), ys.<span class="hl-title function_ invoke__">len</span>());</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-variable">n</span> = xs.<span class="hl-title function_ invoke__">len</span>();</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">prev</span> = <span class="hl-built_in">vec!</span>[<span class="hl-number">0f64</span>; n + <span class="hl-number">1</span>];</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">curr</span> = <span class="hl-built_in">vec!</span>[std::<span class="hl-type">f64</span>::MAX; n + <span class="hl-number">1</span>];</code>
+<code>    curr[<span class="hl-number">0</span>] = <span class="hl-number">0.0</span>;</code>
+<code></code>
+<code>    <span class="hl-keyword">for</span> <span class="hl-variable">ix</span> <span class="hl-keyword">in</span> <span class="hl-number">1</span>..(n + <span class="hl-number">1</span>) {</code>
+<code>        std::mem::<span class="hl-title function_ invoke__">swap</span>(&amp;<span class="hl-keyword">mut</span> curr, &amp;<span class="hl-keyword">mut</span> prev);</code>
+<code>        curr[<span class="hl-number">0</span>] = std::<span class="hl-type">f64</span>::MAX;</code>
+<code>        <span class="hl-keyword">for</span> <span class="hl-variable">iy</span> <span class="hl-keyword">in</span> <span class="hl-number">1</span>..(n + <span class="hl-number">1</span>) {</code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">d11</span> = prev[iy - <span class="hl-number">1</span>];</code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">d01</span> = curr[iy - <span class="hl-number">1</span>];</code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">d10</span> = prev[iy];</code>
+<code></code>
+<code>            <span class="hl-comment">// Find the minimum of d11, d01, d10</span></code>
+<code>            <span class="hl-comment">// by enumerating all the cases.</span></code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">d</span> = <span class="hl-keyword">if</span> d11 &lt; d01 {</code>
+<code>                <span class="hl-keyword">if</span> d11 &lt; d10 { d11 } <span class="hl-keyword">else</span> { d10 }</code>
+<code>            } <span class="hl-keyword">else</span> {</code>
+<code>                <span class="hl-keyword">if</span> d01 &lt; d10 { d01 } <span class="hl-keyword">else</span> { d10 }</code>
+<code>            };</code>
+<code></code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">cost</span> = {</code>
+<code>                <span class="hl-keyword">let</span> <span class="hl-variable">t</span> = xs[ix - <span class="hl-number">1</span>] - ys[iy - <span class="hl-number">1</span>];</code>
+<code>                t * t</code>
+<code>            };</code>
+<code></code>
+<code>            curr[iy] = d + cost;</code>
+<code>        }</code>
+<code>    }</code>
+<code>    curr[n]</code>
+<code>}</code></pre>
+
+</figure>
+<p><a href="http://play.rust-lang.org/?gist=3d42c67904441279c4cbb1708fb35a06&amp;version=stable">Code on Rust playground</a></p>
+</section>
+<section id="Profile-first">
+
+    <h2>
+    <a href="#Profile-first">Profile first </a>
+    </h2>
+<p>Is it fast? If we compile it in <code>--release</code> mode with</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-section">[build]</span></code>
+<code><span class="hl-attr">rustflags</span> = <span class="hl-string">&quot;-C target-cpu=native&quot;</span></code></pre>
+
+</figure>
+<p>in <code>~/.cargo/config</code>, it takes 435 milliseconds for two
+random sequences of length 10000.</p>
+<p>What is the bottleneck? Let&rsquo;s look at the instruction level profile of the main
+loop using <a href="https://perf.wiki.kernel.org/index.php/Main_Page"><code>perf annotate</code></a> command:</p>
+
+<figure class="code-block">
+
+
+<pre><code>   // Find the minimum of three numbers.</code>
+<code>    0.00 :       vmovsd -0x8(%rax,%rsi,8),%xmm1</code>
+<code>    0.00 :       vmovsd (%rax,%rsi,8),%xmm2</code>
+<code>    0.06 :       vminsd %xmm2,%xmm1,%xmm3</code>
+<code>    9.04 :       vminsd %xmm2,%xmm0,%xmm2</code>
+<code>    0.00 :       vcmpltsd %xmm0,%xmm1,%xmm0</code>
+<code>   22.70 :       vblendvpd %xmm0,%xmm3,%xmm2,%xmm0</code>
+<code></code>
+<code>   // Calculate the squared error penalty.</code>
+<code>    0.00 :       vmovsd -0x8(%r12,%r10,8),%xmm1</code>
+<code>    0.00 :       vsubsd -0x8(%r13,%rsi,8),%xmm1,%xmm1</code>
+<code>   11.01 :       vmulsd %xmm1,%xmm1,%xmm1</code>
+<code></code>
+<code>   // Store the result in the `curr` array.</code>
+<code>   // Note how xmm0 is used on the next iteration.</code>
+<code>   22.81 :       vaddsd %xmm1,%xmm0,%xmm0</code>
+<code>   10.67 :       vmovsd %xmm0,(%rdi,%rsi,8)</code></pre>
+
+</figure>
+<p><code>perf annotate</code> uses AT&amp;T assembly syntax, this means that the destination
+registry is on the right.</p>
+<p>The <code>xmm0</code> registry holds the value of <code>curr[iy]</code>, which was calculated on the
+previous iteration. Values of <code>prev[iy - 1]</code> and <code>prev[iy]</code> are fetched into
+<code>xmm1</code> and <code>xmm2</code>. Note that although the original code contained three <code>if</code>
+expressions, the assembly does not have any jumps and instead uses two <code>min</code> and
+one <code>blend</code> instruction to select the minimum. Nevertheless, a significant
+amount of time, according to <code>perf</code>, is spent calculating the minimum.</p>
+</section>
+<section id="Optimization">
+
+    <h2>
+    <a href="#Optimization">Optimization </a>
+    </h2>
+<p>Can we do better? Let&rsquo;s use <code>min2</code> function to calculate minimum of three
+elements recursively:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">min2</span>(x: <span class="hl-type">f64</span>, y: <span class="hl-type">f64</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">f64</span> {</code>
+<code>    <span class="hl-keyword">if</span> x &lt; y { x } <span class="hl-keyword">else</span> { y }</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">dtw</span>(xs: &amp;[<span class="hl-type">f64</span>], ys: &amp;[<span class="hl-type">f64</span>]) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">f64</span> {</code>
+<code>    <span class="hl-comment">// ...</span></code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">d</span> = <span class="hl-title function_ invoke__">min2</span>(<span class="hl-title function_ invoke__">min2</span>(d11, d01), d10);</code>
+<code>    <span class="hl-comment">// ...</span></code>
+<code>}</code></pre>
+
+</figure>
+<p><a href="http://play.integer32.com/?gist=c69968bb572f2973b1c314f92e4fb332&amp;version=stable">Code on Rust playground</a></p>
+<p>This version completes in 430 milliseconds, which is a nice win of 5
+milliseconds over the first version, but is not that impressive. The assembly
+looks cleaner though:</p>
+
+<figure class="code-block">
+
+
+<pre><code>    0.00 :       vmovsd -0x8(%rax,%rsi,8),%xmm1</code>
+<code>    0.28 :       vminsd %xmm0,%xmm1,%xmm0</code>
+<code>   31.14 :       vminsd (%rax,%rsi,8),%xmm0,%xmm0</code>
+<code></code>
+<code>    0.06 :       vmovsd -0x8(%r12,%r10,8),%xmm1</code>
+<code>    0.28 :       vsubsd -0x8(%r13,%rsi,8),%xmm1,%xmm1</code>
+<code>   10.61 :       vmulsd %xmm1,%xmm1,%xmm1</code>
+<code></code>
+<code>   23.29 :       vaddsd %xmm1,%xmm0,%xmm0</code>
+<code>   11.11 :       vmovsd %xmm0,(%rdi,%rsi,8)</code></pre>
+
+</figure>
+<p>Up to this point it was a rather boring blog post about Rust with some assembly
+thrown in. But let&rsquo;s tweak the last variant just a little bit &hellip;</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">dtw</span>(xs: &amp;[<span class="hl-type">f64</span>], ys: &amp;[<span class="hl-type">f64</span>]) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">f64</span> {</code>
+<code>    <span class="hl-comment">// ...</span></code>
+<code>            <span class="hl-comment">// Swap d10 and d01.</span></code>
+<code>            <span class="hl-keyword">let</span> <span class="hl-variable">d</span> = <span class="hl-title function_ invoke__">min2</span>(<span class="hl-title function_ invoke__">min2</span>(d11, d10), d01);</code>
+<code>    <span class="hl-comment">// ...</span></code>
+<code>}</code></pre>
+
+</figure>
+<p><a href="http://play.integer32.com/?gist=caf7609db82341fb7ccf13033738232e&amp;version=stable">Code on Rust playground</a></p>
+<p>This version takes only 287 milliseconds to run, which is roughly 1.5 times
+faster than the previous one! However, the assembly looks almost the same &hellip;</p>
+
+<figure class="code-block">
+
+
+<pre><code>    0.08 :       vmovsd -0x8(%rax,%rsi,8),%xmm1</code>
+<code>    0.17 :       vminsd (%rax,%rsi,8),%xmm1,%xmm1</code>
+<code>   16.40 :       vminsd %xmm0,%xmm1,%xmm0</code>
+<code></code>
+<code>    0.00 :       vmovsd -0x8(%r12,%r10,8),%xmm1</code>
+<code>    0.17 :       vsubsd -0x8(%r13,%rsi,8),%xmm1,%xmm1</code>
+<code>   18.24 :       vmulsd %xmm1,%xmm1,%xmm1</code>
+<code></code>
+<code>   17.15 :       vaddsd %xmm1,%xmm0,%xmm0</code>
+<code>   15.82 :       vmovsd %xmm0,(%rdi,%rsi,8)</code></pre>
+
+</figure>
+<p>The only difference is that two <code>vminsd</code> instructions are swapped.
+But it is definitely much faster.</p>
+</section>
+<section id="A-possible-explanation">
+
+    <h2>
+    <a href="#A-possible-explanation">A possible explanation </a>
+    </h2>
+<p>A possible explanation is a synergy of CPU level parallelism and speculative
+execution. It was proposed by <a href="https://users.rust-lang.org/t/performance-issue-with-c-array-like-computation-2-times-worst-than-naive-java/9807/30?u=matklad">@krdln and @vitalyd</a>. I don&rsquo;t know how to
+<a href="https://en.wikipedia.org/wiki/Falsifiability">falsify</a> it, but it at least looks plausible to me!</p>
+<p>Imagine for a second that instead of <code>vminsd %xmm0,%xmm1,%xmm0</code> instruction
+in the preceding assembly there is just <code>vmovsd %xmm1,%xmm0</code>. That is, we don&rsquo;t
+use <code>xmm0</code> from the previous iteration at all! This corresponds to the following
+update rule:</p>
+
+<figure>
+
+<img alt="Parallel update" src="/assets/min3_par.png">
+</figure>
+<p>The important property of this update rule is that CPU can calculate two cells
+simultaneously in parallel, because there is no data dependency between
+<code>curr[i]</code> and <code>curr[i + 1]</code>.</p>
+<p>We do have <code>vminsd %xmm0,%xmm1,%xmm0</code>, but it is equivalent to <code>vmovsd
+%xmm1,%xmm0</code> if <code>xmm1</code> is smaller than <code>xmm0</code>. And this is often the case:
+<code>xmm1</code> holds the minimum of upper and diagonal cell, so it is likely to be less
+then a single cell to the left. Also, the diagonal path is taken slightly more
+often then the two alternatives, which adds to the bias.</p>
+<p>So it looks like the CPU is able to speculatively execute <code>vminsd</code> and
+parallelise the following computation based on this speculation! Isn&rsquo;t that
+awesome?</p>
+</section>
+<section id="Further-directions">
+
+    <h2>
+    <a href="#Further-directions">Further directions </a>
+    </h2>
+<p>It&rsquo;s interesting that we can make the computation truly parallel if we update
+the cells diagonally:</p>
+
+<figure>
+
+<img alt="Diagonal update" src="/assets/min3_diag.png">
+</figure>
+<p>This is explored in <a href="https://matklad.github.io/2017/03/18/min-of-three-part-2.html">the second part</a> of this post.</p>
+</section>
+<section id="Conclusion">
+
+    <h2>
+    <a href="#Conclusion">Conclusion </a>
+    </h2>
+<p>Despite the fact that Rust is a high level language, there is a strong
+correlation between the source code and the generated assembly. Small tweaks to
+the source result in the small changes to the assembly with potentially big
+implications for performance. Also, <code>perf</code> is great!</p>
+<p>That&rsquo;s all :)</p>
+</section>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2017-03-12-min-of-three.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

@@ -1,0 +1,122 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>matklad @ NEAR</title>
+  <meta name="description" content="Hey, I have a short announcement to make: I am joining NEAR (sharded proof of stake public blockchain)!
+TL;DR: I'll be spending 60% of my time on WASM runtime for smart contracts and 40% on rust-analyzer.">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2021/02/15/NEAR.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#matklad-NEAR">matklad @ NEAR <time datetime="2021-02-15">Feb 15, 2021</time></a>
+    </h1>
+<p>Hey, I have a short announcement to make: I am joining <a href="https://near.org">NEAR</a> (sharded proof of stake public blockchain)!
+TL;DR: I&rsquo;ll be spending 60% of my time on WASM runtime for smart contracts and 40% on rust-analyzer.</p>
+<p>Why NEAR?
+One of the problems I have with current popular blockchain technologies is that they are not scalable.
+Every node needs to process every transaction in the network.
+For a network of with <code>N</code> nodes that is roughly <code>O(N^2)</code> total work.
+NEAR aims to solve exactly this problem using the classic big data trick &mdash; sharding the data across several partitions.</p>
+<p>Another aspect of NEAR I am particularly excited about is the strategic focus on the smart contract&rsquo;s developer experience.
+That&rsquo;s why NEAR is particularly interested in supporting rust-analyzer.
+Rust, with its top-notch WASM ecosystem and focus on correctness is a natural choice for writing contracts.
+At the same time, it is not the most approachable language there is.
+Good tooling can help a lot with surmounting the language&rsquo;s inherent complexity, making writing smart contracts in Rust easy.</p>
+<p>What does it mean for rust-analyzer?
+We&rsquo;ll see: I am still be putting significant hours into it, although a bit less than previously.
+I&rsquo;ll also help to manage rust-analyzer <a href="https://opencollective.com/rust-analyzer">Open Collective</a>.
+And, naturally, my know-how about building IDEs isn&rsquo;t going anywhere :)
+At the same time, I am excited about lowering the bus factor and distributing rust-analyzer maintainership.
+I do want to take credit for initiating the effort, but it&rsquo;s high time for some structured leadership rotation.
+It&rsquo;s exciting to see <a href="https://github.com/jonas-schievink">@jonas-schievink</a> from <a href="https://ferrous-systems.com">Ferrous System</a> taking on more team leadership tasks.
+(I am hyped about support for inner items, kudos Jonas!)
+I am also delighted with the open source community that formed around rust-analyzer.
+<a href="https://github.com/edwin0cheng">@edwin0cheng</a>,
+<a href="https://github.com/flodiebold">@flodiebold</a>,
+<a href="https://github.com/kjeremy">@kjeremy</a>,
+<a href="https://github.com/lnicola">@lnicola</a>,
+<a href="https://github.com/SomeoneToIgnore">@SomeoneToIgnore</a>,
+<a href="https://github.com/Veetaha">@Veetaha</a>,
+<a href="https://github.com/Veykril">@Veykril</a>
+you are awesome, and rust-analyzer wouldn&rsquo;t be possible without you ❤️</p>
+<p>Finally, I can&rsquo;t help but notice that IntelliJ Rust which I left completely a while ago is doing better than ever.
+Overall, I must say I <em>am</em> quite happy with today&rsquo;s state of Rust IDE tooling.
+The basics are firmly in place.
+Let&rsquo;s just finish the remaining 90%!</p>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2021-02-15-NEAR.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

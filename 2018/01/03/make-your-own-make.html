@@ -1,0 +1,238 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Make your own make</title>
+  <meta name="description" content="One of my favorite features of Cargo is that it is not a general
+purpose build tool. This allows Cargo to really excel at the task of building
+Rust code, without usual Turing tarpit of build configuration files. I have yet
+to see a complicated Cargo.toml file!">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2018/01/03/make-your-own-make.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Make-your-own-make">Make your own make <time datetime="2018-01-03">Jan 3, 2018</time></a>
+    </h1>
+<section id="Introduction">
+
+    <h2>
+    <a href="#Introduction">Introduction </a>
+    </h2>
+<p>One of my favorite features of <a href="https://doc.rust-lang.org/cargo/">Cargo</a> is that it is <strong><strong>not</strong></strong> a general
+purpose build tool. This allows Cargo to really excel at the task of building
+Rust code, without usual Turing tarpit of build configuration files. I have yet
+to see a complicated Cargo.toml file!</p>
+<p>However, once a software project grows, it&rsquo;s almost inevitable that it will
+require some tasks <strong>besides</strong> building Rust code. For example, you might need to
+integrate several languages together, or to setup some elaborate testing for
+non-code aspects of your project, like checking the licenses, or to establish an
+elaborate release procedure.</p>
+<p>For such use-cases, a general purpose task automation solution is needed. In
+this blog post I want to describe one possible approach, which leans heavily on
+Cargo&rsquo;s built-in functionality.</p>
+
+<aside class="admn note">
+<i class="fa fa-info-circle"></i>
+<div><p><a href="https://github.com/matklad/cargo-xtask/">xtask</a> specification is a modern
+version of this idea.</p>
+</div>
+</aside></section>
+<section id="Existing-Solutions">
+
+    <h2>
+    <a href="#Existing-Solutions">Existing Solutions </a>
+    </h2>
+<p>The simplest way to automate something is to write a shell script. However there
+are few experts in the arcane art of shell scripting, and shell scripts are
+inherently platform dependent.</p>
+<p>The same goes for make, with its many annoyingly similar flavors.</p>
+<p>Two tools which significantly improve on the ease of use and ergonomics are
+<a href="https://github.com/casey/just">just</a> and <a href="https://github.com/sagiegurari/cargo-make">cargo make</a>. Alas, they still mostly rely on the
+shell to actually execute the tasks.</p>
+</section>
+<section id="Reinventing-the-Wheel">
+
+    <h2>
+    <a href="#Reinventing-the-Wheel">Reinventing the Wheel </a>
+    </h2>
+<p>Obligatory <a href="https://xkcd.com/927/">XKCD 927</a>:</p>
+
+<figure>
+
+<img alt="xkcd 927" src="https://imgs.xkcd.com/comics/standards.png">
+</figure>
+<p>An obvious idea is to use Rust for task automation. Originally, I have proposed
+creating a special Cargo subcommand to execute build tasks, implemented as Rust
+programs, in <a href="https://users.rust-lang.org/t/idea-for-a-crate-tool-cargo-task/15300/">this
+thread</a>.
+However, since then I realized that there are built-in tools in Cargo which
+allow one to get a pretty ergonomic solution. Namely, the combination of
+workspaces, aliases and ability to define binaries seems to do the trick.</p>
+</section>
+<section id="Elements-of-the-Solution">
+
+    <h2>
+    <a href="#Elements-of-the-Solution">Elements of the Solution </a>
+    </h2>
+<p>If you just want a working example, see <a href="https://github.com/matklad/libsyntax2/commit/bb381a7ff7a21cad98d80005a81f2586684f80a0">this
+commit</a>.</p>
+<p>A typical Rust project looks like this</p>
+
+<figure class="code-block">
+
+
+<pre><code>frobnicator/</code>
+<code>  Cargo.toml</code>
+<code>  src/</code>
+<code>    lib.rs</code></pre>
+
+</figure>
+<p>Suppose that we want to add a couple of tasks, like generating some code from
+some specification in the <a href="https://github.com/ron-rs/ron">RON</a> format, or
+grepping the source code for <code>TODO</code> marks.</p>
+<p>First, create a special <code>tools</code> package:</p>
+
+<figure class="code-block">
+
+
+<pre><code>frobnicator/</code>
+<code>  Cargo.toml</code>
+<code>  src/</code>
+<code>    lib.rs</code>
+<code>  tools/</code>
+<code>    Cargo.toml</code>
+<code>    src/bin/</code>
+<code>      gen.rs</code>
+<code>      todo.rs</code></pre>
+
+</figure>
+<p>The <code>tools/Cargo.toml</code> might look like this:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-comment"># file: frobnicator/tools/Cargo.toml</span></code>
+<code></code>
+<code><span class="hl-section">[package]</span></code>
+<code><span class="hl-attr">name</span> = <span class="hl-string">&quot;tools&quot;</span></code>
+<code><span class="hl-attr">version</span> = <span class="hl-string">&quot;0.1.0&quot;</span></code>
+<code><span class="hl-attr">authors</span> = []</code>
+<code><span class="hl-comment"># We never publish our tasks</span></code>
+<code><span class="hl-attr">publish</span> = <span class="hl-literal">false</span></code>
+<code></code>
+<code><span class="hl-section">[dependencies]</span></code>
+<code><span class="hl-comment"># These dependencies are isolated from the main crate.</span></code>
+<code><span class="hl-attr">serde</span> = <span class="hl-string">&quot;1.0.26&quot;</span></code>
+<code><span class="hl-attr">serde_derive</span> = <span class="hl-string">&quot;1.0.26&quot;</span></code>
+<code><span class="hl-attr">file</span> = <span class="hl-string">&quot;1.1.1&quot;</span></code>
+<code><span class="hl-attr">ron</span> = <span class="hl-string">&quot;0.1.5&quot;</span></code></pre>
+
+</figure>
+<p>Then, we add a
+<a href="https://doc.rust-lang.org/cargo/reference/manifest.html#the-workspace-section"><code>[workspace]</code></a>
+to the parent package:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-comment"># file: frobnicator/Cargo.toml</span></code>
+<code></code>
+<code><span class="hl-section">[workspace]</span></code>
+<code><span class="hl-attr">members</span> = [<span class="hl-string">&quot;tools&quot;</span>]</code></pre>
+
+</figure>
+<p>We need this section because <code>tools</code> is not a dependency of <code>frobnicator</code>, so it
+won&rsquo;t be picked up automatically.</p>
+<p>Then, we write code to accomplish the tasks in <code>tools/src/bin/gen.rs</code> and
+<code>tools/src/bin/todo.rs</code>.</p>
+<p>Finally, we add <code>frobnicator/.cargo/config</code> with the following contents:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-comment"># file: frobnicator/.cargo/config</span></code>
+<code></code>
+<code><span class="hl-section">[alias]</span></code>
+<code><span class="hl-attr">gen</span>  = <span class="hl-string">&quot;run --package tools --bin gen&quot;</span></code>
+<code><span class="hl-attr">todo</span> = <span class="hl-string">&quot;run --package tools --bin todo&quot;</span></code></pre>
+
+</figure>
+<p>Voilà! Now, running <code>cargo gen</code> or <code>cargo todo</code> will execute the tasks!</p>
+<p>Discussion on <a href="https://www.reddit.com/r/rust/comments/7v0q3h/blog_post_i_accidentally_a_build_system_almost/">/r/rust</a>.</p>
+</section>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2018-01-03-make-your-own-make.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

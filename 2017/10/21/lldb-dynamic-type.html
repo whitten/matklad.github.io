@@ -1,0 +1,148 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dynamic types in LLDB</title>
+  <meta name="description" content="If you are wondering how debuggers work, I suggest reading Eli Bendersky's
+eli-on-debuggers. However after having read these notes myself, I still
+had one question unanswered. Namely, how can debugger show fields of a class, if
+the type of the class is known only at runtime?">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2017/10/21/lldb-dynamic-type.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Dynamic-types-in-LLDB">Dynamic types in LLDB <time datetime="2017-10-21">Oct 21, 2017</time></a>
+    </h1>
+<p>If you are wondering how debuggers work, I suggest reading Eli Bendersky&rsquo;s
+<a href="https://eli.thegreenplace.net/tag/debuggers">eli-on-debuggers</a>. However after having read these notes myself, I still
+had one question unanswered. Namely, how can debugger show fields of a class, if
+the type of the class is known only at runtime?</p>
+<section id="Example">
+
+    <h2>
+    <a href="#Example">Example </a>
+    </h2>
+<p>Consider this situation: you have a pointer of type <code>A*</code>, which at runtime holds
+a value of some subtype of <code>A</code>. Could the debugger display the fields of the
+actual type? Turns out, it can handle cases like the one below just fine!</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Base</span> { ... };</code>
+<code></code>
+<code><span class="hl-keyword">struct</span> <span class="hl-title class_">Derived</span>: Base { ... };</code>
+<code></code>
+<code><span class="hl-function"><span class="hl-type">void</span> <span class="hl-title">foo</span><span class="hl-params">(Base&amp; x)</span> </span>{</code>
+<code>    <span class="hl-comment">// `x` can be `Derived` or `Base` here.</span></code>
+<code>    <span class="hl-comment">// How can debugger show fields of `Derived` then?</span></code>
+<code>}</code></pre>
+
+</figure>
+</section>
+<section id="DWARF">
+
+    <h2>
+    <a href="#DWARF">DWARF </a>
+    </h2>
+<p>Could it be possible that information about dynamic types is present in DWARF?
+If we look at the DWARF, we&rsquo;ll see that there&rsquo;s layout information for both
+<code>Base</code> and <code>Derive</code> types, as well as a entry for <code>x</code> parameter, which says that
+it has type <code>Base</code>. And this makes sense: we don&rsquo;t know that <code>x</code> is  <code>Derived</code>
+until runtime! So debugger must somehow figure the type of the variable
+dynamically.</p>
+</section>
+<section id="No-Magic">
+
+    <h2>
+    <a href="#No-Magic">No Magic </a>
+    </h2>
+<p>As usual, there&rsquo;s no magic. For example, LLDB has a hard-coded knowledge of C++
+programming language, which allows debugger to inspect types at runtime.
+Specifically, this is handled by <code>LanguageRuntime</code> LLDB <strong>plugin</strong>, which has a
+curious function <a href="https://github.com/llvm-mirror/lldb/blob/bc19e289f759c26e4840aab450443d4a85071139/include/lldb/Target/LanguageRuntime.h#L82"><code>GetDynamicTypeAndAddress</code></a>, whose job is to poke the
+representation of value to get its real type and adjust pointer, if necessary
+(remember, with multiple inheritance, casts may change the value of the
+pointer).</p>
+<p>The implementation of this function for C++ language lives in
+<a href="https://github.com/llvm-mirror/lldb/blob/bc19e289f759c26e4840aab450443d4a85071139/source/Plugins/LanguageRuntime/CPlusPlus/ItaniumABI/ItaniumABILanguageRuntime.cpp#L185">ItaniumABILanguageRuntime.cpp</a> although, unlike C, C++ lacks a
+standardized ABI, almost all compilers on all non-windows platforms use a
+<a href="http://refspecs.linuxbase.org/cxxabi-1.83.html">specific ABI</a>, confusingly called Itanium (after a now effectively dead
+64-bit CPU architecture).</p>
+</section>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2017-10-21-lldb-dynamic-type.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

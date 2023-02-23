@@ -1,0 +1,169 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rust Course Retrospective</title>
+  <meta name="description" content="It was the last week of the Rust course at Computer Science Center.
+This post is my experience report from teaching this course.">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2019/05/19/rust-course-retrospective.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Rust-Course-Retrospective">Rust Course Retrospective <time datetime="2019-05-19">May 19, 2019</time></a>
+    </h1>
+<p>It was the last week of the Rust course at <a href="https://compscicenter.ru">Computer Science Center</a>.
+This post is my experience report from teaching this course.</p>
+<section id="Materials">
+
+    <h2>
+    <a href="#Materials">Materials </a>
+    </h2>
+<p>Note that the course is in Russian :-)</p>
+<p>Course slides are available under CC-BY at <a href="https://github.com/matklad/rust-course">https://github.com/matklad/rust-course</a>.
+See <a href="/2019/05/19/consider-using-asciidoctor-for-your-next-presentation.html">the sibling post</a> if you want to learn more about how the slides were made
+(TL;DR: Asciidoctor is better than beamer, Google Docs, slides.com, reveal.js, remark).</p>
+<p>High-quality recordings of lectures are available on YouTube:</p>
+<p><a href="https://www.youtube.com/playlist?list=PLlb7e2G7aSpTfhiECYNI2EZ1uAluUqE_e">https://www.youtube.com/playlist?list=PLlb7e2G7aSpTfhiECYNI2EZ1uAluUqE_e</a></p>
+<p>The homework is not available, but it was based on the <a href="http://www.realtimerendering.com/raytracing/Ray%20Tracing%20in%20a%20Weekend.pdf">Ray Tracing in One Weekend</a> book.</p>
+</section>
+<section id="Good-Parts">
+
+    <h2>
+    <a href="#Good-Parts">Good Parts </a>
+    </h2>
+<p>Teaching is hard, but very rewarding.
+Teaching Rust feels especially good because the language is very well designed and the quality of the implementation is great.
+Overall, I don&rsquo;t feel like this was a particularly hard course for the students.
+In the end most of the folks successfully completed all assignments, which were fairly representative of the typical Rust code.</p>
+</section>
+<section id="Hard-Parts">
+
+    <h2>
+    <a href="#Hard-Parts">Hard Parts </a>
+    </h2>
+<p>There were one extremely hard topic and one poorly explained topic.</p>
+<p>The hard one was the module system.
+Many students were completely stumped by it.
+It&rsquo;s difficult to point out the specific hard aspect of the current (Rust 2018) module system: each student struggled in their own way.</p>
+<p>Here&rsquo;s a selection of points of confusion:</p>
+<ul>
+<li>
+you don&rsquo;t need to wrap contents of <code>foo.rs</code> in <code>mod foo { ... }</code>
+</li>
+<li>
+you don&rsquo;t need to add <code>mod lib;</code> to <code>main.rs</code>
+</li>
+<li>
+child module lives in the <code>parent/child.rs</code> file, <strong><strong>unless</strong></strong> the parent is <code>lib.rs</code> or <code>main.rs</code>
+</li>
+</ul>
+<p>I feel like my explanation of modules was an OK one, it contained all the relevant details and talked about how things work under the hood.
+However, it seems like just explaining the modules is not enough: one really needs to arrange a series of exercises about modules, and make sure that all students successfully pass them.</p>
+<p>I don&rsquo;t think that modules are the hardest feature of the language: advanced lifetimes and <code>unsafe</code> subtleties are more difficult.
+However, you don&rsquo;t really write <code>mem::transmute</code> or HRTB every day, while you face modules pretty early.</p>
+<p>The poorly explained topic was <code>Send/Sync</code>.
+I was like &ldquo;compiler infers <code>Send/Sync</code> automatically, and after that your code just fails to compile if it would had a data race, isn&rsquo;t Rust wonderful?&rdquo;.
+But this misses the crucial point: in generic code (both for <code>impl T</code> and <code>dyn T</code>), you&rsquo;ll need to write <code>: Sync</code> bounds yourself.
+Of course the homework was about generic code, and there were a number of solutions with (unsound) <code>unsafe impl&lt;T&gt; Sync for MyThing&lt;T&gt;</code> :-)</p>
+</section>
+<section id="Annoying-Parts">
+
+    <h2>
+    <a href="#Annoying-Parts">Annoying Parts </a>
+    </h2>
+<p>It&rsquo;s very hard to google Rust documentation at the moment, because google links
+you to redirect stubs of the old book, which creates that weird feeling that you
+are inside of a <a href="https://en.wikipedia.org/wiki/Sepulka">science-fiction novel</a>.
+I know that the problem is already fixed, and we just need to wait until the new version of the old book is deployed, but I wish we could have fixed it earlier.</p>
+<p>Editions are a minor annoyance as well. I&rsquo;ve completely avoided talking about Rust 2015, hoping that I&rsquo;ll just teach the shiny new thing.
+But of course students google for help and get outdated info.</p>
+<ul>
+<li>
+many used <code>extern crate</code> syntax
+</li>
+<li>
+<code>dyn</code> in <code>dyn T</code> was sometimes omitted
+</li>
+<li>
+there was a couple of <code>mod.rs</code>
+</li>
+</ul>
+<p>Additionally, several students somehow ended up without <code>edition = "2015"</code> in <code>Cargo.toml</code>.</p>
+<p>Discussion on <a href="https://www.reddit.com/r/rust/comments/bqlctn/rust_course_retrospective/">/r/rust</a>.</p>
+</section>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2019-05-19-rust-course-retrospective.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>

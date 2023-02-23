@@ -1,0 +1,336 @@
+
+<!DOCTYPE html>
+<html lang='en-US'>
+<head>
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Call Site Dependency Injection</title>
+  <meta name="description" content="This post documents call site dependency injection pattern.
+It is a rather low level specimen and has little to do with enterprise DI.
+The pattern is somewhat Rust-specific.">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://matklad.github.io/2020/12/28/csdi.html">
+  <link rel="alternate" type="application/rss+xml" title="matklad" href="https://matklad.github.io/feed.xml">
+  <style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/css/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: bold;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; margin-block-start: 0; margin-block-end: 0; }
+
+  h1, h2, h3 { font-weight: 300; }
+
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  main { display: flex; flex-direction: column; width: 100%; max-width: 80ch; padding-left: 2ch; padding-right: 2ch; }
+
+  header { width: 100%; max-width: 80ch; margin-bottom: 1.5rem; }
+  header > nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  header a { font-style: normal; margin-left: 1ch; margin-right: 1ch; line-height: 1.5rem; color: rgba(0, 0, 0, .8); text-decoration: none; }
+  header a:hover { color: rgba(0, 0, 0, .8); text-decoration: underline; }
+  header .title { font-size: 1.25em; flex-grow: 2; }
+
+  footer { display: flex; justify-content: center; align-items: baseline; width: 100%; max-width: 80ch; margin-top: 1rem; height: 2rem; padding-left: 1ch; padding-right: 1ch; }
+  footer > p { margin-bottom: 0; }
+  footer a { padding-left: 2ch; font-style: normal; color: rgba(0, 0, 0, .8); text-decoration: none; white-space: nowrap; }
+  footer i { vertical-align: middle; color: rgba(0, 0, 0, .8) }
+
+  </style>
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=EB+Garamond:400,400italic,700,700italic%7COpen+Sans:300">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css">
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="/">matklad</a>
+      <a href="/about.html">About</a>
+      <a href="/resume.html">Resume</a>
+      <a href="/links.html">Links</a>
+    </nav>
+  </header>
+
+  <main>
+  <article >
+
+    <h1>
+    <a href="#Call-Site-Dependency-Injection">Call Site Dependency Injection <time datetime="2020-12-28">Dec 28, 2020</time></a>
+    </h1>
+<p>This post documents call site dependency injection pattern.
+It is a rather low level specimen and has little to do with enterprise DI.
+The pattern is somewhat Rust-specific.</p>
+<p>Usually, when you implement a type which needs some user-provided functionality, the first thought is to supply it in constructor:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Engine</span> {</code>
+<code>    config: Config,</code>
+<code>    ...</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span> <span class="hl-title class_">Engine</span> {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>(config: Config) <span class="hl-punctuation">-&gt;</span> Engine { ... }</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">go</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>) { ... }</code>
+<code>}</code></pre>
+
+</figure>
+<p>In this example, we implement <code>Engine</code> and the caller supplies <code>Config</code>.</p>
+<p>An alternative is to pass the dependency to every method call:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Engine</span> {</code>
+<code>    ...</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span> <span class="hl-title class_">Engine</span> {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>() <span class="hl-punctuation">-&gt;</span> Engine { ... }</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">go</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, config: &amp;Config) { ... }</code>
+<code>}</code></pre>
+
+</figure>
+<p>In Rust, the latter (call-site injection) sometimes works with lifetimes better.
+Let&rsquo;s see the examples!</p>
+<section id="Lazy-Field">
+
+    <h2>
+    <a href="#Lazy-Field">Lazy Field </a>
+    </h2>
+<p>In the first example, we want to lazily compute a field&rsquo;s value based on other fields.
+Something like this:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Widget</span> {</code>
+<code>    name: <span class="hl-type">String</span>,</code>
+<code>    name_hash: Lazy&lt;<span class="hl-type">u64</span>&gt;,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span> <span class="hl-title class_">Widget</span> {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>(name: <span class="hl-type">String</span>) <span class="hl-punctuation">-&gt;</span> Widget {</code>
+<code>        Widget {</code>
+<code>            name,</code>
+<code>            name_hash: Lazy::<span class="hl-title function_ invoke__">new</span>(|| {</code>
+<code>                <span class="hl-title function_ invoke__">compute_hash</span>(&amp;<span class="hl-keyword">self</span>.name)</code>
+<code>            }),</code>
+<code>        }</code>
+<code>    }</code>
+<code>}</code></pre>
+
+</figure>
+<p>The problem with this design is that it doesn&rsquo;t work in Rust.
+The closure in <code>Lazy</code> needs access to <code>self</code>, and that would create a self-referential data structure!</p>
+<p>The solution is to supply the closure at the point where the <code>Lazy</code> is used:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Widget</span> {</code>
+<code>    name: <span class="hl-type">String</span>,</code>
+<code>    name_hash: OnceCell&lt;<span class="hl-type">u64</span>&gt;,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span> <span class="hl-title class_">Widget</span> {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">new</span>(name: <span class="hl-type">String</span>) <span class="hl-punctuation">-&gt;</span> Widget {</code>
+<code>        Widget {</code>
+<code>            name,</code>
+<code>            name_hash: OnceCell::<span class="hl-title function_ invoke__">new</span>(),</code>
+<code>        }</code>
+<code>    }</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">name_hash</span>(&amp;<span class="hl-keyword">self</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">u64</span> {</code>
+<code>        *<span class="hl-keyword">self</span>.name_hash.<span class="hl-title function_ invoke__">get_or_init</span>(|| {</code>
+<code>            <span class="hl-title function_ invoke__">compute_hash</span>(&amp;<span class="hl-keyword">self</span>.name)</code>
+<code>        })</code>
+<code>    }</code>
+<code>}</code></pre>
+
+</figure>
+</section>
+<section id="Indirect-Hash-Table">
+
+    <h2>
+    <a href="#Indirect-Hash-Table">Indirect Hash Table </a>
+    </h2>
+<p>The next example is about plugging a custom hash function into a hash table.
+In Rust&rsquo;s standard library, this is only possible on the type level, by implementing the <code>Hash</code> trait for a type.
+A more general design would be to parameterize the table with a hash function at run-time.
+This is what C++ does.
+However in Rust this won&rsquo;t be general enough.</p>
+<p>Consider a string interner, which stores strings in a vector and additionally maintains a hash-based index:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Interner</span> {</code>
+<code>    vec: <span class="hl-type">Vec</span>&lt;<span class="hl-type">String</span>&gt;,</code>
+<code>    set: HashSet&lt;<span class="hl-type">usize</span>&gt;,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span> <span class="hl-title class_">Interner</span> {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">intern</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, s: &amp;<span class="hl-type">str</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">usize</span> { ... }</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">lookup</span>(&amp;<span class="hl-keyword">self</span>, i: <span class="hl-type">usize</span>) <span class="hl-punctuation">-&gt;</span> &amp;<span class="hl-type">str</span> { ... }</code>
+<code>}</code></pre>
+
+</figure>
+<p>The <code>set</code> field stores the strings in a hash table, but it represents them using indices into neighboring <code>vec</code>.</p>
+<p>Constructing the <code>set</code> with a closure wont work for the same reason <code>Lazy</code> didn&rsquo;t work &mdash; this creates a self-referential structure.
+In C++ there exists a work-around &mdash; it is possible to box the <code>vec</code> and share a stable pointer between <code>Interner</code> and the closure.
+In Rust, that would create aliasing, preventing the use of <code>&amp;mut Vec</code>.</p>
+<p>Curiously, using a sorted vec instead of a hash works with std APIs:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">struct</span> <span class="hl-title class_">Interner</span> {</code>
+<code>    vec: <span class="hl-type">Vec</span>&lt;<span class="hl-type">String</span>&gt;,</code>
+<code>    <span class="hl-comment">// Invariant: sorted</span></code>
+<code>    set: <span class="hl-type">Vec</span>&lt;<span class="hl-type">usize</span>&gt;,</code>
+<code>}</code>
+<code></code>
+<code><span class="hl-keyword">impl</span> <span class="hl-title class_">Interner</span> {</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">intern</span>(&amp;<span class="hl-keyword">mut</span> <span class="hl-keyword">self</span>, s: &amp;<span class="hl-type">str</span>) <span class="hl-punctuation">-&gt;</span> <span class="hl-type">usize</span> {</code>
+<code>        <span class="hl-keyword">let</span> <span class="hl-variable">idx</span> = <span class="hl-keyword">self</span>.set.<span class="hl-title function_ invoke__">binary_search_by</span>(|&amp;idx| {</code>
+<code>            <span class="hl-keyword">self</span>.vec[idx].<span class="hl-title function_ invoke__">cmp</span>(s)</code>
+<code>        });</code>
+<code>        <span class="hl-keyword">match</span> idx {</code>
+<code>            <span class="hl-title function_ invoke__">Ok</span>(idx) =&gt; <span class="hl-keyword">self</span>.set[idx],</code>
+<code>            <span class="hl-title function_ invoke__">Err</span>(idx) =&gt; {</code>
+<code>                <span class="hl-keyword">let</span> <span class="hl-variable">res</span> = <span class="hl-keyword">self</span>.vec.<span class="hl-title function_ invoke__">len</span>();</code>
+<code>                <span class="hl-keyword">self</span>.vec.<span class="hl-title function_ invoke__">push</span>(s.<span class="hl-title function_ invoke__">to_string</span>());</code>
+<code>                <span class="hl-keyword">self</span>.set.<span class="hl-title function_ invoke__">insert</span>(idx, res);</code>
+<code>                res</code>
+<code>            }</code>
+<code>        }</code>
+<code>    }</code>
+<code>    <span class="hl-keyword">fn</span> <span class="hl-title function_">lookup</span>(&amp;<span class="hl-keyword">self</span>, i: <span class="hl-type">usize</span>) <span class="hl-punctuation">-&gt;</span> &amp;<span class="hl-type">str</span> { ... }</code>
+<code>}</code></pre>
+
+</figure>
+<p>This is because the closure is supplied at the call site rather than at the construction site.</p>
+<p>The hashbrown crate provides this style of API for hashes via <a href="https://docs.rs/hashbrown/0.9.1/hashbrown/hash_map/struct.HashMap.html#method.raw_entry_mut">RawEntry</a>.</p>
+</section>
+<section id="Per-Container-Allocators">
+
+    <h2>
+    <a href="#Per-Container-Allocators">Per Container Allocators </a>
+    </h2>
+<p>The third example is from the Zig programming language.
+Unlike Rust, Zig doesn&rsquo;t have a blessed global allocator.
+Instead, containers in Zig come in two flavors.
+The &ldquo;Managed&rdquo; flavor accepts an allocator as a constructor parameter and stores it as a field
+(<a href="https://github.com/ziglang/zig/blob/1590ed9d6aea95e5a21e3455e8edba4cdb374f2c/lib/std/array_list.zig#L36-L43">Source</a>).
+The &ldquo;Unmanaged&rdquo; flavor adds an <code>allocator</code> parameter to every method
+(<a href="https://github.com/ziglang/zig/blob/1590ed9d6aea95e5a21e3455e8edba4cdb374f2c/lib/std/array_list.zig#L436-L440">Source</a>).</p>
+<p>The second approach is more frugal &mdash; it is possible to use a single allocator reference with many containers.</p>
+</section>
+<section id="Fat-Pointers">
+
+    <h2>
+    <a href="#Fat-Pointers">Fat Pointers </a>
+    </h2>
+<p>The final example comes from the Rust language itself.
+To implement dynamic dispatch, Rust uses fat pointers, which are two words wide.
+The first word points to the object, the second one to the vtable.
+These pointers are manufactured at the point where a concrete type is used generically.</p>
+<p>This is different from C++, where vtable pointer is embedded into the object itself during construction.</p>
+<hr>
+<p>Having seen all these examples, I am warming up to Scala-style implicit parameters.
+Consider this hypothetical bit of Rust code with Zig-style vectors:</p>
+
+<figure class="code-block">
+
+
+<pre><code>{</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">a</span> = <span class="hl-title function_ invoke__">get_allocator</span>();</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">xs</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>    <span class="hl-keyword">let</span> <span class="hl-keyword">mut </span><span class="hl-variable">ys</span> = <span class="hl-type">Vec</span>::<span class="hl-title function_ invoke__">new</span>();</code>
+<code>    xs.<span class="hl-title function_ invoke__">push</span>(&amp;<span class="hl-keyword">mut</span> a, <span class="hl-number">1</span>);</code>
+<code>    ys.<span class="hl-title function_ invoke__">push</span>(&amp;<span class="hl-keyword">mut</span> a, <span class="hl-number">2</span>);</code>
+<code>}</code></pre>
+
+</figure>
+<p>The problem here is <code>Drop</code> &ndash; freeing the vectors requires access to the allocator, and it&rsquo;s unclear how to provide one.
+Zig dodges the problem by using defer statement rather than destructors.
+In Rust with implicit parameters, I imagine the following would work:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">impl</span>&lt;implicit a: &amp;<span class="hl-keyword">mut</span> Allocator, T&gt; <span class="hl-built_in">Drop</span> <span class="hl-keyword">for</span> <span class="hl-title class_">Vec</span>&lt;T&gt;</code></pre>
+
+</figure>
+<hr>
+<p>To conclude, I want to share one last example where CSDI thinking helped me to discover a better application-level architecture.</p>
+<p>A lot of rust-analyzer&rsquo;s behavior is configurable.
+There are toggles for inlay hints, completion can be tweaked, and some features work differently depending on the editor.
+The first implementation was to store a global <code>Config</code> struct together with the rest of analysis state.
+Various subsystems then read bits of this <code>Config</code>.
+To avoid coupling distinct features together via this shared struct, config keys were dynamic:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">type</span> <span class="hl-title class_">Config</span> = HashMap&lt;<span class="hl-type">String</span>, <span class="hl-type">String</span>&gt;;</code></pre>
+
+</figure>
+<p>This system worked, but felt rather awkward.</p>
+<p>The current implementation is much simpler.
+Rather than storing a single <code>Config</code> as a part of the state, each method now accepts a specific config parameter:</p>
+
+<figure class="code-block">
+
+
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-title function_">get_completions</span>(</code>
+<code>    analysis: &amp;Analysis,</code>
+<code>    config: &amp;CompletionConfig,</code>
+<code>    file: FileId,</code>
+<code>    offset: <span class="hl-type">usize</span>,</code>
+<code>)</code>
+<code></code>
+<code><span class="hl-keyword">fn</span> <span class="hl-title function_">get_inlay_hints</span>(</code>
+<code>    analysis: &amp;Analysis,</code>
+<code>    config: &amp;HintsConfig,</code>
+<code>    file: FileId,</code>
+<code>)</code></pre>
+
+</figure>
+<p>Not only the code is simpler, it is more flexible.
+Because configuration is no longer a part of the state, it is possible to use different configs for the same functionality depending on the context.
+For example, explicitly invoked completion might be different from the asynchronous one.</p>
+<p>Discussion on <a href="https://old.reddit.com/r/rust/comments/kmd41e/blog_post_call_site_dependency_injection/">/r/rust</a>.</p>
+</section>
+</article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/matklad/matklad.github.io/edit/master/src/posts/2020-12-28-csdi.dj">
+        <i class="fa fa-edit"></i> fix typo
+      </a>
+
+      <a href="/feed.xml">
+        <i class="fa fa-rss"></i> rss
+      </a>
+
+      <a href="https://github.com/matklad">
+        <i class="fa fa-github"></i> matklad
+      </a>
+    </p>
+  </footer>
+</body>
+
+</html>
